@@ -728,7 +728,7 @@ function DriverApp({ session }: { session: any }) {
           // Esto lee el GPS continuamente mientras esté conectado
           watchId = await Geolocation.watchPosition(
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-            async (pos, err) => {
+            async (pos, _err) => {
               if (pos) {
                 await supabase.from('perfiles')
                   .update({ latitud: pos.coords.latitude, longitud: pos.coords.longitude })
