@@ -962,7 +962,7 @@ function DriverApp({ session }: { session: any }) {
           <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#111]">
             <div className="flex items-center gap-3">
                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-               <h3 className="text-xs font-bold text-white uppercase tracking-widest">Asistente IA (n8n)</h3>
+               <h3 className="text-xs font-bold text-white uppercase tracking-widest">Asistente IA </h3>
             </div>
             <button onClick={() => setChatIAAbierto(false)}><X className="text-zinc-500 w-6 h-6" /></button>
           </div>
