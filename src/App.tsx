@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { Download, Users, Clock, Car, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Poimport { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';pup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
 
 // ==========================================
