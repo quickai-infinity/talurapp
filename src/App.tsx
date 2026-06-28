@@ -3,8 +3,32 @@ import autoTable from 'jspdf-autotable';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { Download, Users, Clock, Car, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Poimport { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';pup } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
+
+// ==========================================
+// FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
+// ==========================================
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconUrl: markerIcon,
+  iconRetinaUrl: markerIcon2x,
+  shadowUrl: markerShadow,
+});
+
+function AutoCentrarMapa({ posicion }: { posicion: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo(posicion, map.getZoom(), { animate: true, duration: 1.5 });
+  }, [posicion, map]);
+  return null;
+}
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -271,12 +295,17 @@ function AdminDashboard({ session }: { session: any }) {
 }
 
 // ==========================================
-// COMPONENTE: MODAL DE EXPEDIENTE (ADMIN - EDICIÓN DOBLE Y AUTO-CÁLCULO)
+// COMPONENTE: MODAL DE EXPEDIENTE (ADMIN - TOTALMENTE EN VIVO CON RADAR GPS)
 // ==========================================
 function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void }) {
-  const tieneUbicacion = chofer.latitud !== null && chofer.longitud !== null && chofer.latitud !== undefined;
-  const posicion: [number, number] = tieneUbicacion ? [chofer.latitud, chofer.longitud] : [0, 0];
-  
+  // 1. ESTADOS DE POSICIÓN DINÁMICA (EL RADAR EN VIVO)
+  const [posicionActual, setPosicionActual] = useState<[number, number]>(
+    chofer.latitud && chofer.longitud ? [chofer.latitud, chofer.longitud] : [0, 0]
+  );
+  const [tieneUbicacion, setTieneUbicacion] = useState(
+    chofer.latitud !== null && chofer.longitud !== null && chofer.latitud !== undefined
+  );
+
   const [horas, setHoras] = useState(parseFloat(chofer.horas_acumuladas) || 0);
   
   // Estados para la Edición de Horas (Separado en H y M)
@@ -293,8 +322,19 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const mensajesEndRef = useRef<HTMLDivElement>(null);
 
+  // Sincronización en Tiempo Real (Canales de Supabase)
   useEffect(() => {
     cargarDatos();
+
+    // RADAR ACTIVO: Detecta los movimientos continuos del teléfono del chofer
+    const canalRadar = supabase.channel(`radar_${chofer.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
+        if (payload.new.latitud && payload.new.longitud) {
+          setPosicionActual([payload.new.latitud, payload.new.longitud]);
+          setTieneUbicacion(true);
+        }
+      }).subscribe();
+
     const canalChat = supabase.channel(`chat_admin_${chofer.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
         setMensajes((prev) => [...prev, payload.new]);
@@ -306,9 +346,15 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
         cargarDatos();
       }).subscribe();
 
-    return () => { supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
+    // Limpieza de todos los canales al cerrar el modal
+    return () => { 
+      supabase.removeChannel(canalRadar); 
+      supabase.removeChannel(canalChat); 
+      supabase.removeChannel(canalJornadas); 
+    };
   }, [chofer.id]);
 
+  // Cronómetro interno para acumular minutos en vivo en la UI del administrador
   useEffect(() => {
     let intervalo: any;
     if (chofer.estado_actual === 'conectado') {
@@ -336,7 +382,6 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     }
   }
 
-  // BOTÓN GUARDAR (Convierte lo de las cajitas a decimal para la DB)
   const guardarHoras = async () => {
     const totalDecimal = inputEditH + (inputEditM / 60);
     const { error } = await supabase.from('perfiles').update({ horas_acumuladas: totalDecimal }).eq('id', chofer.id);
@@ -348,7 +393,6 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     }
   };
 
-  // MAGIA: AUTO-CALCULAR DESDE LA TABLA
   const recalcularDesdeHistorial = async () => {
     let totalMs = 0;
     historialJornadas.forEach(j => {
@@ -356,10 +400,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
         totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime();
       }
     });
-    
-    // Convertir milisegundos a horas decimales
     const totalCalculado = totalMs / (1000 * 60 * 60);
-    
     const { error } = await supabase.from('perfiles').update({ horas_acumuladas: totalCalculado }).eq('id', chofer.id);
     if (!error) {
        setHoras(totalCalculado);
@@ -381,7 +422,6 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     doc.text(`Chofer: ${chofer.nombre_completo} ${chofer.apellidos}`, 14, 22);
     doc.text(`DNI/NIE: ${chofer.dni}`, 14, 27);
     
-    // Convertir decimal a PDF legible
     const pdfMinutos = Math.round(horas * 60);
     doc.text(`Horas Totales Aprobadas: ${Math.floor(pdfMinutos / 60)}h ${pdfMinutos % 60}m`, 14, 32);
 
@@ -434,7 +474,6 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
           {/* PANEL IZQUIERDO: HORAS Y CHAT */}
           <div className="w-1/3 border-r border-zinc-800 p-6 flex flex-col gap-4 overflow-hidden">
             
-            {/* NUEVA CAJA DE HORAS */}
             <div className="bg-black border border-zinc-800 p-4 rounded-xl flex-shrink-0">
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2"><Clock className="w-3 h-3" /> Total Histórico {minutosEnVivo > 0 && <span className="text-emerald-500 animate-pulse">(En Vivo)</span>}</h3>
@@ -488,9 +527,9 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
             </div>
           </div>
 
-          {/* PANEL DERECHO: TABS (MAPA / HISTORIAL) */}
+          {/* PANEL DERECHO: TABS (MAPA CON SEGUIMIENTO EN VIVO / HISTORIAL) */}
           <div className="w-2/3 flex flex-col bg-zinc-900">
-             <div className="flex border-b border-zinc-800 bg-[#0a0a0a]">
+             <div className="flex border-b border-zinc-800 bg-black">
                 <button onClick={() => setVistaActual('mapa')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'mapa' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Localización GPS</button>
                 <button onClick={() => setVistaActual('historial')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'historial' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Fichajes y Turnos</button>
              </div>
@@ -498,9 +537,10 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
              <div className="flex-1 relative">
                 {vistaActual === 'mapa' ? (
                   tieneUbicacion ? (
-                     <MapContainer center={posicion} zoom={15} style={{ height: '100%', width: '100%', zIndex: 10 }}>
+                     <MapContainer center={posicionActual} zoom={15} style={{ height: '100%', width: '100%', zIndex: 10 }}>
                         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-                        <Marker position={posicion}><Popup className="text-black font-bold">{chofer.nombre_completo}</Popup></Marker>
+                        <Marker position={posicionActual}><Popup className="text-black font-bold">{chofer.nombre_completo}</Popup></Marker>
+                        <AutoCentrarMapa posicion={posicionActual} />
                      </MapContainer>
                   ) : (
                      <div className="h-full flex flex-col items-center justify-center text-zinc-500">
@@ -655,7 +695,7 @@ function RegistroChofer({ onAdd, adminEmail }: { onAdd: () => void, adminEmail: 
 }
 
 // ==========================================
-// APP DEL CHOFER (INTERFAZ MÓVIL PRO CON HISTORIAL Y CÁLCULOS ESTRICTOS)
+// APP DEL CHOFER (INTERFAZ MÓVIL PRO + RASTREO GPS EN VIVO)
 // ==========================================
 function DriverApp({ session }: { session: any }) {
   const [perfil, setPerfil] = useState<any>(null);
@@ -678,7 +718,32 @@ function DriverApp({ session }: { session: any }) {
 
   useEffect(() => { cargarPerfil(); }, []);
 
-  // Cronómetro del turno actual
+  // 1. EFECTO DE RASTREO EN VIVO (EL "EFECTO UBER")
+  useEffect(() => {
+    let watchId: string | null = null;
+    const iniciarRastreo = async () => {
+      if (perfil?.estado_actual === 'conectado') {
+        const permisos = await Geolocation.checkPermissions();
+        if (permisos.location === 'granted') {
+          // Esto lee el GPS continuamente mientras esté conectado
+          watchId = await Geolocation.watchPosition(
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+            async (pos, err) => {
+              if (pos) {
+                await supabase.from('perfiles')
+                  .update({ latitud: pos.coords.latitude, longitud: pos.coords.longitude })
+                  .eq('id', session.user.id);
+              }
+            }
+          );
+        }
+      }
+    };
+    iniciarRastreo();
+    return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
+  }, [perfil?.estado_actual, session.user.id]);
+
+  // 2. Cronómetro del turno actual
   useEffect(() => {
     let intervalo: any;
     if (perfil?.estado_actual === 'conectado') {
@@ -687,7 +752,7 @@ function DriverApp({ session }: { session: any }) {
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
-  // Radar de Base de Datos en Vivo
+  // 3. Radar de Base de Datos en Vivo (Chat y Jornadas)
   useEffect(() => {
     if (!session?.user?.id) return;
     const canalChat = supabase.channel('chat_chofer')
@@ -733,10 +798,7 @@ function DriverApp({ session }: { session: any }) {
     await supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: msg });
   };
 
-  // ==========================================
-  // FUNCIÓN MAESTRA DE FICHAJE REPARADA
-  // ==========================================
-const toggleTurno = async () => {
+  const toggleTurno = async () => {
     if (!perfil) return;
     setActualizando(true);
 
@@ -767,7 +829,6 @@ const toggleTurno = async () => {
         if (jornadaActivaId) {
           const fechaFin = new Date().toISOString();
           
-          // Enviamos 'finalizada' en perfecta sincronía con la regla SQL
           const { data: jornadaCerrada, error: errSalida } = await supabase.from('jornadas').update({ 
             hora_fin: fechaFin,
             ubicacion_fin: `${lat}, ${lng}`,
