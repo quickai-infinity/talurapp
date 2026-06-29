@@ -196,7 +196,7 @@ function AdminDashboard({ session }: { session: any }) {
     setEnviandoIA(true);
 
     try {
-      const res = await fetch('https://panel1.quickai.agency/webhook/abogadoya-agente', {
+      const res = await fetch('https://panel1.quickai.agency/webhook/talur-admin-ia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chofer: 'Administrador Central', mensaje: mensajeIA, ubicacion: 'Base Central' })
@@ -900,7 +900,7 @@ function DriverApp({ session }: { session: any }) {
     const nuevoHistorial = [...historialIA, { rol: 'user', texto: mensajeIA }];
     setHistorialIA(nuevoHistorial); setMensajeIA(''); setEnviandoIA(true);
     try {
-      const res = await fetch('https://panel1.quickai.agency/webhook/abogadoya-agente', {
+      const res = await fetch('https://panel1.quickai.agency/webhook/talur-admin-ia', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chofer: perfil.nombre_completo, mensaje: mensajeIA, ubicacion: `Lat: ${perfil.latitud}, Lng: ${perfil.longitud}` })
       });
