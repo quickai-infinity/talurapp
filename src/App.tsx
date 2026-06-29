@@ -210,7 +210,6 @@ function AdminDashboard({ session }: { session: any }) {
   };
 
   // CÁLCULOS DINÁMICOS PARA LAS TARJETAS
-  const vehiculosActivos = choferes.filter(c => c.estado_actual === 'conectado').length;
 
   return (
     <div className="min-h-screen bg-black text-slate-200 font-sans p-6 relative">
