@@ -33,6 +33,7 @@ function AutoCentrarMapa({ posicion }: { posicion: [number, number] }) {
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -130,6 +131,7 @@ function RoleController({ session }: { session: any }) {
 function AdminDashboard({ session }: { session: any }) {
   const [choferes, setChoferes] = useState<any[]>([]);
   const [choferSeleccionado, setChoferSeleccionado] = useState<any>(null);
+  const [vehiculosActivos, setVehiculosActivos] = useState<string[]>([]);
 
   // Estados para el Chat IA del Admin
   const [mensajeIA, setMensajeIA] = useState('');
@@ -137,26 +139,54 @@ function AdminDashboard({ session }: { session: any }) {
   const [enviandoIA, setEnviandoIA] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const obtenerVehiculosEnRuta = async () => {
+    const { data } = await supabase
+      .from('jornadas')
+      .select('vehiculo')
+      .is('hora_fin', null); // Solo los turnos que no han terminado
+
+    if (data) {
+      // Extraemos los nombres, eliminamos los vacíos y quitamos duplicados
+      const nombres = data.map(j => j.vehiculo).filter(Boolean);
+      setVehiculosActivos(Array.from(new Set(nombres)));
+    }
+  };
+
+  async function fetchChoferes() {
+    const { data } = await supabase.from('perfiles').select('*').eq('rol', 'chofer');
+    if (data) setChoferes(data);
+  }
+
+  // AQUÍ ESTÁ LA CORRECCIÓN: Todo va dentro del useEffect de forma segura
   useEffect(() => {
     fetchChoferes();
-    const radar = supabase
+    obtenerVehiculosEnRuta();
+
+    const radarPerfiles = supabase
       .channel('monitor_choferes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'perfiles' }, () => {
         fetchChoferes();
       })
       .subscribe();
-    return () => { supabase.removeChannel(radar); };
+
+    // Nuevo radar para actualizar los vehículos en ruta en vivo si alguien ficha
+    const radarJornadas = supabase
+      .channel('monitor_jornadas_admin_global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas' }, () => {
+        obtenerVehiculosEnRuta();
+      })
+      .subscribe();
+
+    return () => { 
+      supabase.removeChannel(radarPerfiles); 
+      supabase.removeChannel(radarJornadas);
+    };
   }, []);
 
   // Efecto para bajar el scroll del chat automáticamente
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [historialIA]);
-
-  async function fetchChoferes() {
-    const { data } = await supabase.from('perfiles').select('*').eq('rol', 'chofer');
-    if (data) setChoferes(data);
-  }
 
   const enviarMensajeIA = async () => {
     if (!mensajeIA.trim()) return;
@@ -200,11 +230,38 @@ function AdminDashboard({ session }: { session: any }) {
         </div>
 
         {/* Tarjetas de Métricas (Ajustadas a 3 columnas) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <MetricCard icon={<Users />} title="Choferes Activos" value={`${vehiculosActivos} / ${choferes.length}`} />
-          <MetricCard icon={<Car />} title="Vehículos en Ruta" value={vehiculosActivos.toString()} />
-          <MetricCard icon={<ShieldCheck className="text-yellow-500" />} title="Estado Inspección" value="Auditable" highlight />
-        </div>
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <MetricCard 
+    icon={<Users />} 
+    title="Choferes Activos" 
+    value={`${choferes.filter(c => c.estado_actual === 'conectado').length} / ${choferes.length}`} 
+  />
+  
+  <MetricCard 
+    icon={<Car />} 
+    title="Vehículos en Ruta" 
+    value={
+      <div className="flex flex-col gap-1 mt-1">
+        {vehiculosActivos.length > 0 ? (
+          vehiculosActivos.map((vehiculo, index) => (
+            <span key={index} className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded w-fit animate-pulse border border-emerald-500/20">
+              • {vehiculo}
+            </span>
+          ))
+        ) : (
+          <span className="text-3xl font-black text-white">0</span>
+        )}
+      </div>
+    } 
+  />
+  
+  <MetricCard 
+    icon={<ShieldCheck className="text-yellow-500" />} 
+    title="Estado Inspección" 
+    value="Auditable" 
+    highlight 
+  />
+</div>
 
         {/* REGISTRO DE NUEVOS CHOFERES */}
         <RegistroChofer onAdd={fetchChoferes} adminEmail={session.user.email} />
@@ -574,11 +631,10 @@ function MetricCard({ icon, title, value, highlight = false }: any) {
     <div className={`p-5 rounded-xl border ${highlight ? 'bg-yellow-500/5 border-yellow-500/30' : 'bg-[#0f0f0f] border-zinc-800'}`}>
       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-3 ${highlight ? 'bg-yellow-500/20 text-yellow-500' : 'bg-zinc-800 text-zinc-400'}`}>{icon}</div>
       <h4 className="text-xs text-zinc-500 font-bold uppercase tracking-wider">{title}</h4>
-      <span className={`text-2xl font-black font-mono ${highlight ? 'text-yellow-500' : 'text-white'}`}>{value}</span>
+      <div className={`text-2xl font-black font-mono ${highlight ? 'text-yellow-500' : 'text-white'}`}>{value}</div>
     </div>
   );
 }
-
 // ==========================================
 // COMPONENTE: FORMULARIO DE REGISTRO COMPLETO (CORREGIDO)
 // ==========================================
