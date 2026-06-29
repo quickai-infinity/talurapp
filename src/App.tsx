@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Download, Users, Clock, Car, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator } from 'lucide-react';
+import { Download, Users, Clock, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator, Car } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
 
@@ -295,73 +295,46 @@ function AdminDashboard({ session }: { session: any }) {
 }
 
 // ==========================================
-// COMPONENTE: MODAL DE EXPEDIENTE (ADMIN - TOTALMENTE EN VIVO CON RADAR GPS)
+// COMPONENTE: MODAL DE EXPEDIENTE (ADMIN - TOTALMENTE EN VIVO)
 // ==========================================
 function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void }) {
-  // 1. ESTADOS DE POSICIÓN DINÁMICA (EL RADAR EN VIVO)
   const [posicionActual, setPosicionActual] = useState<[number, number]>(
     chofer.latitud && chofer.longitud ? [chofer.latitud, chofer.longitud] : [0, 0]
   );
   const [tieneUbicacion, setTieneUbicacion] = useState(
     chofer.latitud !== null && chofer.longitud !== null && chofer.latitud !== undefined
   );
-
   const [horas, setHoras] = useState(parseFloat(chofer.horas_acumuladas) || 0);
-  
-  // Estados para la Edición de Horas (Separado en H y M)
   const [editandoHoras, setEditandoHoras] = useState(false);
   const [inputEditH, setInputEditH] = useState(0);
   const [inputEditM, setInputEditM] = useState(0);
-  
   const [vistaActual, setVistaActual] = useState<'mapa' | 'historial'>('mapa');
   const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
   const [minutosEnVivo, setMinutosEnVivo] = useState(0);
+  
+  // NUEVO ESTADO: Saber qué coche lleva en vivo
+  const [vehiculoEnVivo, setVehiculoEnVivo] = useState<string | null>(null);
 
-  // Chat
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const mensajesEndRef = useRef<HTMLDivElement>(null);
 
-  // Sincronización en Tiempo Real (Canales de Supabase)
   useEffect(() => {
     cargarDatos();
-
-    // RADAR ACTIVO: Detecta los movimientos continuos del teléfono del chofer
-    const canalRadar = supabase.channel(`radar_${chofer.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
-        if (payload.new.latitud && payload.new.longitud) {
-          setPosicionActual([payload.new.latitud, payload.new.longitud]);
-          setTieneUbicacion(true);
-        }
+    const canalRadar = supabase.channel(`radar_${chofer.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
+        if (payload.new.latitud && payload.new.longitud) { setPosicionActual([payload.new.latitud, payload.new.longitud]); setTieneUbicacion(true); }
       }).subscribe();
-
-    const canalChat = supabase.channel(`chat_admin_${chofer.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
-        setMensajes((prev) => [...prev, payload.new]);
-        setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    const canalChat = supabase.channel(`chat_admin_${chofer.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
+        setMensajes((prev) => [...prev, payload.new]); setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }).subscribe();
+    const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { cargarDatos(); }).subscribe();
 
-    const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => {
-        cargarDatos();
-      }).subscribe();
-
-    // Limpieza de todos los canales al cerrar el modal
-    return () => { 
-      supabase.removeChannel(canalRadar); 
-      supabase.removeChannel(canalChat); 
-      supabase.removeChannel(canalJornadas); 
-    };
+    return () => { supabase.removeChannel(canalRadar); supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
   }, [chofer.id]);
 
-  // Cronómetro interno para acumular minutos en vivo en la UI del administrador
   useEffect(() => {
     let intervalo: any;
-    if (chofer.estado_actual === 'conectado') {
-      intervalo = setInterval(() => setMinutosEnVivo(m => m + 1), 60000);
-    } else {
-      setMinutosEnVivo(0);
-    }
+    if (chofer.estado_actual === 'conectado') { intervalo = setInterval(() => setMinutosEnVivo(m => m + 1), 60000); } else { setMinutosEnVivo(0); }
     return () => clearInterval(intervalo);
   }, [chofer.estado_actual]);
 
@@ -376,8 +349,10 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
        if (activa) {
          const diff = new Date().getTime() - new Date(activa.hora_inicio).getTime();
          setMinutosEnVivo(Math.floor(diff / 60000));
+         setVehiculoEnVivo(activa.vehiculo); // Guardamos el coche actual
        } else {
          setMinutosEnVivo(0);
+         setVehiculoEnVivo(null);
        }
     }
   }
@@ -385,36 +360,24 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const guardarHoras = async () => {
     const totalDecimal = inputEditH + (inputEditM / 60);
     const { error } = await supabase.from('perfiles').update({ horas_acumuladas: totalDecimal }).eq('id', chofer.id);
-    if (!error) { 
-       setHoras(totalDecimal); 
-       setEditandoHoras(false); 
-    } else {
-       alert("Error al guardar en la base de datos.");
-    }
+    if (!error) { setHoras(totalDecimal); setEditandoHoras(false); } else { alert("Error al guardar en la base de datos."); }
   };
 
   const recalcularDesdeHistorial = async () => {
     let totalMs = 0;
-    historialJornadas.forEach(j => {
-      if (j.hora_fin) {
-        totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime();
-      }
-    });
+    historialJornadas.forEach(j => { if (j.hora_fin) { totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime(); } });
     const totalCalculado = totalMs / (1000 * 60 * 60);
     const { error } = await supabase.from('perfiles').update({ horas_acumuladas: totalCalculado }).eq('id', chofer.id);
-    if (!error) {
-       setHoras(totalCalculado);
-       setEditandoHoras(false);
-    }
+    if (!error) { setHoras(totalCalculado); setEditandoHoras(false); }
   };
 
   const enviarMensaje = async () => {
     if (!nuevoMensaje.trim()) return;
-    const msg = nuevoMensaje;
-    setNuevoMensaje('');
+    const msg = nuevoMensaje; setNuevoMensaje('');
     await supabase.from('chat_directo').insert({ chofer_id: chofer.id, remitente: 'admin', mensaje: msg });
   };
 
+  // PDF ACTUALIZADO CON COCHES Y REPOSTAJE
   const descargarPDF = () => {
     const doc = new jsPDF();
     doc.text(`Reporte Oficial de Operaciones - TALUR LUXURY CARS`, 14, 15);
@@ -433,18 +396,29 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
         const diffMins = Math.floor((new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime()) / 60000);
         duracion = `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
       }
-      return [inicio, fin, duracion, j.estado];
+      
+      const coche = j.vehiculo ? j.vehiculo : 'No asignado';
+      let repostaje = '-'; // Si no puso nada, sale un guion
+      if (j.gasto_combustible && j.gasto_combustible > 0) {
+         repostaje = `€${j.gasto_combustible}`;
+         if (j.litros_combustible && j.litros_combustible > 0) {
+            repostaje += ` (${j.litros_combustible}L)`;
+         }
+      }
+
+      return [inicio, fin, duracion, coche, repostaje, j.estado];
     });
 
     autoTable(doc, {
       startY: 40,
-      head: [['Hora de Inicio', 'Hora de Fin', 'Duración', 'Estado']],
+      head: [['Entrada', 'Salida', 'Hrs', 'Vehículo', 'Repostaje', 'Estado']],
       body: tablaDatos,
       theme: 'grid',
-      headStyles: { fillColor: [234, 179, 8] }
+      headStyles: { fillColor: [234, 179, 8], textColor: [0, 0, 0] },
+      styles: { fontSize: 8 }
     });
 
-    doc.save(`Reporte_${chofer.nombre_completo.replace(/\s/g, '_')}.pdf`);
+    doc.save(`Reporte_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}.pdf`);
   };
 
   const baseMinutos = Math.round(horas * 60);
@@ -456,11 +430,16 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
       <div className="bg-[#111] border border-zinc-800 w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         
-        {/* Cabecera */}
+        {/* Cabecera con Indicador de Coche en Vivo */}
         <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-zinc-900/50">
           <div>
             <h2 className="text-xl font-black text-white uppercase tracking-wide">{chofer.nombre_completo} {chofer.apellidos}</h2>
             <p className="text-zinc-500 font-mono text-sm mt-1">DNI/NIE: {chofer.dni} | Tel: {chofer.telefono}</p>
+            {vehiculoEnVivo && (
+              <div className="mt-2 flex items-center gap-2 text-emerald-500 font-bold uppercase text-[10px] bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 w-fit animate-pulse">
+                 <Car className="w-3 h-3" /> EN RUTA: {vehiculoEnVivo}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <button onClick={descargarPDF} className="bg-yellow-500 text-black px-4 py-2 rounded font-bold text-xs flex items-center gap-2 hover:bg-yellow-400">
@@ -551,26 +530,30 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
                 ) : (
                   <div className="h-full overflow-y-auto p-6">
                      <table className="w-full text-left text-sm text-zinc-300">
-                        <thead className="text-xs text-zinc-500 uppercase border-b border-zinc-800 bg-black">
+                        <thead className="text-[10px] text-zinc-500 uppercase border-b border-zinc-800 bg-black">
                            <tr>
-                              <th className="py-3 px-4">Entrada</th>
-                              <th className="py-3 px-4">Salida</th>
-                              <th className="py-3 px-4">Total Horas</th>
+                              <th className="py-3 px-4">Fecha/Entrada</th>
+                              <th className="py-3 px-4">Vehículo</th>
+                              <th className="py-3 px-4">Gasto/Recarga</th>
                               <th className="py-3 px-4">Estado</th>
                            </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-800">
                            {historialJornadas.map(j => {
-                              let duracionStr = 'En curso...';
-                              if (j.hora_fin) {
-                                const diffMins = Math.floor((new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime()) / 60000);
-                                duracionStr = `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
-                              }
                               return (
                                 <tr key={j.id} className="hover:bg-zinc-800/50">
-                                   <td className="py-3 px-4 font-mono">{new Date(j.hora_inicio).toLocaleDateString()} <span className="text-zinc-500">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></td>
-                                   <td className="py-3 px-4 font-mono">{j.hora_fin ? <>{new Date(j.hora_fin).toLocaleDateString()} <span className="text-zinc-500">{new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></> : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}</td>
-                                   <td className="py-3 px-4 font-bold text-white">{duracionStr}</td>
+                                   <td className="py-3 px-4">
+                                      <p className="font-bold text-white">{new Date(j.hora_inicio).toLocaleDateString()}</p>
+                                      <p className="font-mono text-xs text-zinc-500">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}</p>
+                                   </td>
+                                   <td className="py-3 px-4 text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</td>
+                                   <td className="py-3 px-4 font-mono text-xs">
+                                      {j.gasto_combustible > 0 ? (
+                                        <span className="text-white">€{j.gasto_combustible} {j.litros_combustible > 0 && <span className="text-zinc-500">({j.litros_combustible}L)</span>}</span>
+                                      ) : (
+                                        <span className="text-zinc-600">-</span>
+                                      )}
+                                   </td>
                                    <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] uppercase font-bold ${j.estado === 'activa' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-zinc-800 text-zinc-400'}`}>{j.estado}</span></td>
                                 </tr>
                               );
@@ -695,7 +678,7 @@ function RegistroChofer({ onAdd, adminEmail }: { onAdd: () => void, adminEmail: 
 }
 
 // ==========================================
-// APP DEL CHOFER (INTERFAZ MÓVIL PRO + RASTREO GPS EN VIVO)
+// APP DEL CHOFER (CON SELECCIÓN DE FLOTA Y GASTOS)
 // ==========================================
 function DriverApp({ session }: { session: any }) {
   const [perfil, setPerfil] = useState<any>(null);
@@ -703,36 +686,45 @@ function DriverApp({ session }: { session: any }) {
   const [actualizando, setActualizando] = useState(false);
   const [minutosActivos, setMinutosActivos] = useState(0);
   const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null);
+  const [vehiculoEnUso, setVehiculoEnUso] = useState<string | null>(null);
   
+  // NUEVOS ESTADOS PARA LOS MODALES DE FICHADO
+  const [modalEntrada, setModalEntrada] = useState(false);
+  const [modalSalida, setModalSalida] = useState(false);
+  const [cocheSeleccionado, setCocheSeleccionado] = useState("Mercedes Benz Sprinter 1");
+  const [gastoDinero, setGastoDinero] = useState('');
+  const [gastoLitros, setGastoLitros] = useState('');
+
+  const flotaTalur = [
+    "Mercedes Benz Sprinter 1", "Mercedes Benz Sprinter 2",
+    "Mercedes Minivan Clase V 1", "Mercedes Minivan Clase V 2", "Mercedes Minivan Clase V 3", "Mercedes Minivan Clase V 4",
+    "BYD Seal 1 (Eléctrico)", "BYD Seal 2 (Eléctrico)", "BYD Seal 3 (Eléctrico)", "BYD Seal 4 (Eléctrico)",
+    "Mercedes Sedan Clase E"
+  ];
+
   const [chatIAAbierto, setChatIAAbierto] = useState(false);
   const [jornadaAbierta, setJornadaAbierta] = useState(false);
   const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
-  
   const [mensajeIA, setMensajeIA] = useState('');
   const [historialIA, setHistorialIA] = useState<{rol: string, texto: string}[]>([{rol: 'ia', texto: 'Sistema Central Talur. ¿En qué puedo asistirte en tu ruta?'}]);
   const [enviandoIA, setEnviandoIA] = useState(false);
-
   const [mensajesDirectos, setMensajesDirectos] = useState<any[]>([]);
   const [nuevoMensajeDirecto, setNuevoMensajeDirecto] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { cargarPerfil(); }, []);
 
-  // 1. EFECTO DE RASTREO EN VIVO (EL "EFECTO UBER")
   useEffect(() => {
     let watchId: string | null = null;
     const iniciarRastreo = async () => {
       if (perfil?.estado_actual === 'conectado') {
         const permisos = await Geolocation.checkPermissions();
         if (permisos.location === 'granted') {
-          // Esto lee el GPS continuamente mientras esté conectado
           watchId = await Geolocation.watchPosition(
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
             async (pos, _err) => {
               if (pos) {
-                await supabase.from('perfiles')
-                  .update({ latitud: pos.coords.latitude, longitud: pos.coords.longitude })
-                  .eq('id', session.user.id);
+                await supabase.from('perfiles').update({ latitud: pos.coords.latitude, longitud: pos.coords.longitude }).eq('id', session.user.id);
               }
             }
           );
@@ -743,29 +735,20 @@ function DriverApp({ session }: { session: any }) {
     return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
   }, [perfil?.estado_actual, session.user.id]);
 
-  // 2. Cronómetro del turno actual
   useEffect(() => {
     let intervalo: any;
-    if (perfil?.estado_actual === 'conectado') {
-      intervalo = setInterval(() => setMinutosActivos(m => m + 1), 60000);
-    } else { setMinutosActivos(0); }
+    if (perfil?.estado_actual === 'conectado') { intervalo = setInterval(() => setMinutosActivos(m => m + 1), 60000); } 
+    else { setMinutosActivos(0); }
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
-  // 3. Radar de Base de Datos en Vivo (Chat y Jornadas)
   useEffect(() => {
     if (!session?.user?.id) return;
-    const canalChat = supabase.channel('chat_chofer')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
+    const canalChat = supabase.channel('chat_chofer').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
         setMensajesDirectos((prev) => [...prev, payload.new]);
         setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }).subscribe();
-      
-    const canalJornadas = supabase.channel('jornadas_chofer')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${session.user.id}` }, () => {
-        cargarPerfil(); 
-      }).subscribe();
-
+    const canalJornadas = supabase.channel('jornadas_chofer').on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${session.user.id}` }, () => { cargarPerfil(); }).subscribe();
     return () => { supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
   }, [session?.user?.id]);
 
@@ -776,10 +759,12 @@ function DriverApp({ session }: { session: any }) {
     const { data: jActiva } = await supabase.from('jornadas').select('*').eq('chofer_id', session.user.id).is('hora_fin', null).single();
     if (jActiva) {
       setJornadaActivaId(jActiva.id);
+      setVehiculoEnUso(jActiva.vehiculo);
       const diffMs = new Date().getTime() - new Date(jActiva.hora_inicio).getTime();
       setMinutosActivos(Math.floor(diffMs / 60000));
     } else {
       setJornadaActivaId(null);
+      setVehiculoEnUso(null);
     }
 
     const { data: historial } = await supabase.from('jornadas').select('*').eq('chofer_id', session.user.id).order('hora_inicio', { ascending: false });
@@ -787,7 +772,6 @@ function DriverApp({ session }: { session: any }) {
 
     const { data: cData } = await supabase.from('chat_directo').select('*').eq('chofer_id', session.user.id).order('creado_en', { ascending: true });
     if (cData) { setMensajesDirectos(cData); setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
-
     setLoading(false);
   }
 
@@ -798,65 +782,64 @@ function DriverApp({ session }: { session: any }) {
     await supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: msg });
   };
 
-  const toggleTurno = async () => {
-    if (!perfil) return;
-    setActualizando(true);
-
-    const esConectar = perfil.estado_actual === 'desconectado';
-    const nuevoEstado = esConectar ? 'conectado' : 'desconectado';
-    let lat = perfil.latitud; let lng = perfil.longitud;
-
-    try {
-      if (esConectar) {
-         let permisos = await Geolocation.checkPermissions();
-         if (permisos.location !== 'granted') { permisos = await Geolocation.requestPermissions(); }
-         if (permisos.location !== 'granted') throw new Error('Permisos de GPS denegados por Android.');
-         
-         const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
-         lat = pos.coords.latitude; lng = pos.coords.longitude;
-         
-         const { data: nuevaJornada, error: errEntrada } = await supabase.from('jornadas').insert({ 
-           chofer_id: session.user.id,
-           hora_inicio: new Date().toISOString(),
-           ubicacion_inicio: `${lat}, ${lng}`,
-           estado: 'activa'
-         }).select().single();
-         
-         if (errEntrada) throw new Error("Base de Datos bloqueó la entrada (RLS): " + errEntrada.message);
-         if (nuevaJornada) setJornadaActivaId(nuevaJornada.id);
-
-      } else {
-        if (jornadaActivaId) {
-          const fechaFin = new Date().toISOString();
-          
-          const { data: jornadaCerrada, error: errSalida } = await supabase.from('jornadas').update({ 
-            hora_fin: fechaFin,
-            ubicacion_fin: `${lat}, ${lng}`,
-            estado: 'finalizada'
-          }).eq('id', jornadaActivaId).select().single();
-
-          if (errSalida) throw new Error("No se pudo registrar la salida: " + errSalida.message);
-
-          if (jornadaCerrada) {
-             const horasTurno = (new Date(jornadaCerrada.hora_fin).getTime() - new Date(jornadaCerrada.hora_inicio).getTime()) / (1000 * 60 * 60);
-             const nuevoAcumulado = (parseFloat(perfil.horas_acumuladas || 0) + horasTurno).toFixed(4);
-             await supabase.from('perfiles').update({ horas_acumuladas: nuevoAcumulado }).eq('id', session.user.id);
-          }
-          setJornadaActivaId(null);
-          setMinutosActivos(0);
-        }
-      }
-
-      const { error: errPerfil } = await supabase.from('perfiles').update({ estado_actual: nuevoEstado, latitud: lat, longitud: lng }).eq('id', session.user.id);
-      if (errPerfil) throw new Error("No se pudo cambiar el estado a " + nuevoEstado);
-      
-      await cargarPerfil(); 
-    } catch (error: any) {
-      alert("⚠️ Fallo Operativo:\n" + error.message);
+  const botonPrincipalClick = () => {
+    if (perfil?.estado_actual === 'desconectado') {
+      setModalEntrada(true);
+    } else {
+      setModalSalida(true);
     }
+  };
+
+  const confirmarEntrada = async () => {
+    setModalEntrada(false); setActualizando(true);
+    try {
+      let permisos = await Geolocation.checkPermissions();
+      if (permisos.location !== 'granted') permisos = await Geolocation.requestPermissions();
+      if (permisos.location !== 'granted') throw new Error('GPS Denegado.');
+      
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+      const lat = pos.coords.latitude; const lng = pos.coords.longitude;
+      
+      const { error: errEntrada } = await supabase.from('jornadas').insert({ 
+        chofer_id: session.user.id, hora_inicio: new Date().toISOString(), ubicacion_inicio: `${lat}, ${lng}`, estado: 'activa',
+        vehiculo: cocheSeleccionado // GUARDAMOS EL COCHE
+      }).select().single();
+      
+      if (errEntrada) throw errEntrada;
+      await supabase.from('perfiles').update({ estado_actual: 'conectado', latitud: lat, longitud: lng }).eq('id', session.user.id);
+      await cargarPerfil(); 
+    } catch (error: any) { alert("Error: " + error.message); }
     setActualizando(false);
   };
 
+  const confirmarSalida = async () => {
+    setModalSalida(false); setActualizando(true);
+    try {
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+      const lat = pos.coords.latitude; const lng = pos.coords.longitude;
+
+      if (jornadaActivaId) {
+        const fechaFin = new Date().toISOString();
+        const { data: jornadaCerrada, error: errSalida } = await supabase.from('jornadas').update({ 
+          hora_fin: fechaFin, ubicacion_fin: `${lat}, ${lng}`, estado: 'finalizada',
+          gasto_combustible: gastoDinero ? parseFloat(gastoDinero) : 0,
+          litros_combustible: gastoLitros ? parseFloat(gastoLitros) : 0
+        }).eq('id', jornadaActivaId).select().single();
+
+        if (errSalida) throw errSalida;
+        if (jornadaCerrada) {
+            const horasTurno = (new Date(jornadaCerrada.hora_fin).getTime() - new Date(jornadaCerrada.hora_inicio).getTime()) / (1000 * 60 * 60);
+            const nuevoAcumulado = (parseFloat(perfil.horas_acumuladas || 0) + horasTurno).toFixed(4);
+            await supabase.from('perfiles').update({ horas_acumuladas: nuevoAcumulado, estado_actual: 'desconectado', latitud: lat, longitud: lng }).eq('id', session.user.id);
+        }
+      }
+      setGastoDinero(''); setGastoLitros('');
+      await cargarPerfil();
+    } catch (error: any) { alert("Error: " + error.message); }
+    setActualizando(false);
+  };
+
+  // ... (MANTEN TU FUNCIÓN enviarMensajeIA EXACTAMENTE IGUAL AQUÍ)
   const enviarMensajeIA = async () => {
     if (!mensajeIA) return;
     const nuevoHistorial = [...historialIA, { rol: 'user', texto: mensajeIA }];
@@ -874,18 +857,68 @@ function DriverApp({ session }: { session: any }) {
     setEnviandoIA(false);
   };
 
-  // Cálculos para mostrar Horas y Minutos en el total global
   const baseMinutos = Math.round(parseFloat(perfil?.horas_acumuladas || 0) * 60);
   const totalMinutos = baseMinutos + minutosActivos;
   const globalHoras = Math.floor(totalMinutos / 60);
   const globalMins = totalMinutos % 60;
-
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-yellow-500 font-mono">CARGANDO...</div>;
   const isActivo = perfil?.estado_actual === 'conectado';
+  const esElectrico = vehiculoEnUso?.includes('BYD') || vehiculoEnUso?.includes('Eléctrico');
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col font-sans max-w-md mx-auto relative h-[100dvh] overflow-hidden">
       
+      {/* MODAL DE ENTRADA (SELECCIÓN DE COCHE) */}
+      {modalEntrada && (
+        <div className="absolute inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
+          <div className="bg-[#111] border border-zinc-800 p-6 rounded-2xl w-full">
+            <h3 className="text-yellow-500 font-bold mb-4 uppercase tracking-widest text-sm">Seleccionar Vehículo</h3>
+            <p className="text-xs text-zinc-400 mb-2">Asigna el coche de la flota para este servicio:</p>
+            <select value={cocheSeleccionado} onChange={(e) => setCocheSeleccionado(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-3 rounded mb-6 outline-none focus:border-yellow-500 text-sm">
+              {flotaTalur.map(coche => <option key={coche} value={coche}>{coche}</option>)}
+            </select>
+            <div className="flex gap-3">
+              <button onClick={() => setModalEntrada(false)} className="flex-1 bg-zinc-800 text-white p-3 rounded font-bold text-xs uppercase">Cancelar</button>
+              <button onClick={confirmarEntrada} className="flex-1 bg-yellow-500 text-black p-3 rounded font-bold text-xs uppercase">Iniciar Ruta</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SALIDA (REPORTE DE GASTOS) */}
+      {modalSalida && (
+        <div className="absolute inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
+          <div className="bg-[#111] border border-zinc-800 p-6 rounded-2xl w-full">
+            <h3 className="text-emerald-500 font-bold mb-4 uppercase tracking-widest text-sm">Finalizar Turno</h3>
+            <p className="text-xs text-zinc-400 mb-4">Vehículo a entregar: <span className="text-white font-bold">{vehiculoEnUso}</span></p>
+            
+            {!esElectrico ? (
+              <div className="space-y-4 mb-6 bg-black p-4 rounded-xl border border-zinc-800">
+                <p className="text-[10px] text-zinc-400 font-bold uppercase mb-2">¿Hiciste repostaje? (Deja vacío si no)</p>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Total Euros (€)</label>
+                  <input type="number" step="0.01" placeholder="Ej: 50.50" value={gastoDinero} onChange={e => setGastoDinero(e.target.value)} className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 outline-none focus:border-emerald-500 font-mono" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Litros Gasoil (L)</label>
+                  <input type="number" step="0.1" placeholder="Ej: 30.5" value={gastoLitros} onChange={e => setGastoLitros(e.target.value)} className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 outline-none focus:border-emerald-500 font-mono" />
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-xl text-center">
+                 <p className="text-emerald-500 text-xs font-bold uppercase">Vehículo Eléctrico (Sin repostaje manual)</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => setModalSalida(false)} className="flex-1 bg-zinc-800 text-white p-3 rounded font-bold text-xs uppercase">Cancelar</button>
+              <button onClick={confirmarSalida} className="flex-1 bg-emerald-500 text-black p-3 rounded font-bold text-xs uppercase">Confirmar Salida</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CABECERA (IGUAL QUE ANTES) */}
       <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#0a0a0a] flex-shrink-0">
         <div>
           <h2 className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Chofer Designado</h2>
@@ -906,23 +939,28 @@ function DriverApp({ session }: { session: any }) {
            <div className="text-right space-y-1">
              <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Estado</p>
              <h2 className={`text-sm font-black uppercase tracking-widest ${isActivo ? 'text-emerald-500' : 'text-zinc-600'}`}>
-               {perfil?.estado_actual === 'conectado' ? 'CONECTADO' : 'DESCONECTADO'}
+               {isActivo ? 'CONECTADO' : 'DESCONECTADO'}
              </h2>
            </div>
         </div>
 
-        <button onClick={toggleTurno} disabled={actualizando}
+        <button onClick={botonPrincipalClick} disabled={actualizando}
           className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 shadow-xl active:scale-95 ${
             isActivo ? 'bg-emerald-500/10 border-4 border-emerald-500 text-emerald-500' : 'bg-zinc-900 border-4 border-zinc-800 text-zinc-600'
           }`}>
           <Power className={`w-12 h-12 transition-all ${actualizando ? 'animate-pulse' : ''}`} />
         </button>
         
-        <div className="h-4">
-          {isActivo && <div className="text-emerald-500 font-mono text-[9px] flex items-center gap-1 animate-pulse"><MapIcon className="w-3 h-3" /> GPS TRANSMITIENDO</div>}
+        <div className="h-4 flex flex-col items-center text-center">
+          {isActivo && (
+            <>
+              <div className="text-emerald-500 font-mono text-[9px] flex items-center gap-1 animate-pulse mb-1"><MapIcon className="w-3 h-3" /> EN RUTA: {vehiculoEnUso}</div>
+            </>
+          )}
         </div>
       </div>
 
+      {/* RESTO DE LA APP (CHAT, IA, HISTORIAL... SE MANTIENE EXACTAMENTE IGUAL) */}
       <div className="flex-1 flex flex-col bg-[#0f0f0f] min-h-0">
          <div className="bg-zinc-900/50 p-2 border-b border-zinc-800 flex items-center justify-center gap-2">
             <ShieldCheck className="w-3 h-3 text-emerald-500" />
@@ -962,7 +1000,7 @@ function DriverApp({ session }: { session: any }) {
           <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#111]">
             <div className="flex items-center gap-3">
                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-               <h3 className="text-xs font-bold text-white uppercase tracking-widest">Asistente IA </h3>
+               <h3 className="text-xs font-bold text-white uppercase tracking-widest">Asistente IA</h3>
             </div>
             <button onClick={() => setChatIAAbierto(false)}><X className="text-zinc-500 w-6 h-6" /></button>
           </div>
@@ -1002,18 +1040,20 @@ function DriverApp({ session }: { session: any }) {
                    duracion = `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
                 }
                 const fechaStr = new Date(j.hora_inicio).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-                
                 return (
-                  <div key={j.id} className="bg-[#111] border border-zinc-800 p-4 rounded-xl flex justify-between items-center">
-                     <div>
-                        <p className="text-white font-bold text-sm capitalize">{fechaStr}</p>
-                        <p className="text-zinc-500 font-mono text-[10px] mt-1">
-                          {new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - 
-                          {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ' Presente'}
-                        </p>
+                  <div key={j.id} className="bg-[#111] border border-zinc-800 p-4 rounded-xl flex flex-col gap-2">
+                     <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-white font-bold text-sm capitalize">{fechaStr}</p>
+                            <p className="text-zinc-500 font-mono text-[10px] mt-1">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ' Presente'}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className={`font-mono font-black ${j.hora_fin ? 'text-white' : 'text-emerald-500 animate-pulse'}`}>{duracion}</p>
+                        </div>
                      </div>
-                     <div className="text-right">
-                        <p className={`font-mono font-black ${j.hora_fin ? 'text-white' : 'text-emerald-500 animate-pulse'}`}>{duracion}</p>
+                     <div className="bg-black p-2 rounded border border-zinc-800 mt-2">
+                        <p className="text-[10px] text-zinc-400 font-bold uppercase">Coche: <span className="text-yellow-500">{j.vehiculo || 'No especificado'}</span></p>
+                        {j.gasto_combustible > 0 && <p className="text-[10px] text-zinc-400 font-bold uppercase mt-1">Repostaje: <span className="text-white">€{j.gasto_combustible}</span> {j.litros_combustible > 0 && <span>/ {j.litros_combustible}L</span>}</p>}
                      </div>
                   </div>
                 );
@@ -1021,7 +1061,6 @@ function DriverApp({ session }: { session: any }) {
            </div>
         </div>
       )}
-
     </div>
   );
 }
