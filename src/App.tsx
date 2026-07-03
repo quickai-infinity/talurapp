@@ -2,9 +2,16 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Download, Users, Clock, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator, Car } from 'lucide-react';
+import { 
+  Download, Users, Clock, ShieldCheck, LogOut, X, 
+  MessageSquare, Map as MapIcon, Edit2, Power, 
+  Calculator, Car, Calendar, FileSpreadsheet 
+} from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
+import html2canvas from 'html2canvas';
+import * as ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 // ==========================================
 // FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
@@ -742,6 +749,10 @@ function DriverApp({ session }: { session: any }) {
   const [minutosActivos, setMinutosActivos] = useState(0);
   const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null);
   const [vehiculoEnUso, setVehiculoEnUso] = useState<string | null>(null);
+  const [cuadranteAbierto, setCuadranteAbierto] = useState(false);
+  const [mesCuadrante, setMesCuadrante] = useState(new Date());
+  const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
+  const cuadranteRef = useRef<HTMLDivElement>(null);
   
   // NUEVOS ESTADOS PARA LOS MODALES DE FICHADO
   const [modalEntrada, setModalEntrada] = useState(false);
@@ -766,7 +777,46 @@ function DriverApp({ session }: { session: any }) {
   const [mensajesDirectos, setMensajesDirectos] = useState<any[]>([]);
   const [nuevoMensajeDirecto, setNuevoMensajeDirecto] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+// --- LÓGICA DEL CUADRANTE VISUAL ---
+  useEffect(() => {
+    if (cuadranteAbierto && session?.user?.id) {
+      const cargarCuadrante = async () => {
+        const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
+        if (data) setDiasCuadrante(data);
+      };
+      cargarCuadrante();
+    }
+  }, [cuadranteAbierto, mesCuadrante, session?.user?.id]);
 
+  const toggleDia = async (dia: number) => {
+    const year = mesCuadrante.getFullYear();
+    const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(dia).padStart(2, '0');
+    const fechaStr = `${year}-${month}-${dayStr}`;
+    
+    const existe = diasCuadrante.find(d => d.fecha === fechaStr);
+
+    if (existe) {
+      await supabase.from('cuadrante_turnos').delete().eq('id', existe.id);
+    } else {
+      await supabase.from('cuadrante_turnos').insert({ chofer_id: session.user.id, fecha: fechaStr, tipo: 'libre' });
+    }
+    
+    const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
+    if (data) setDiasCuadrante(data);
+  };
+
+  const descargarAlmanaque = async () => {
+    if (cuadranteRef.current) {
+      const canvas = await html2canvas(cuadranteRef.current, { backgroundColor: '#111' });
+      const link = document.createElement('a');
+      link.download = `Cuadrante_Talur_${perfil?.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+  };
+  // -----------------------------------
+  
   useEffect(() => { cargarPerfil(); }, []);
 
   useEffect(() => {
@@ -787,6 +837,7 @@ function DriverApp({ session }: { session: any }) {
       }
     };
     iniciarRastreo();
+    
     return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
   }, [perfil?.estado_actual, session.user.id]);
 
@@ -1039,14 +1090,18 @@ function DriverApp({ session }: { session: any }) {
          </div>
       </div>
 
-      <div className="grid grid-cols-2 border-t border-zinc-800 bg-[#0a0a0a] flex-shrink-0">
+  <div className="grid grid-cols-3 border-t border-zinc-800 bg-[#0a0a0a] flex-shrink-0">
         <button onClick={() => setChatIAAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800">
           <MessageSquare className="w-4 h-4" />
           <span className="text-[8px] uppercase font-bold tracking-widest">Soporte IA</span>
         </button>
-        <button onClick={() => setJornadaAbierta(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500">
+        <button onClick={() => setJornadaAbierta(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800">
           <Clock className="w-4 h-4" />
           <span className="text-[8px] uppercase font-bold tracking-widest">Mi Jornada</span>
+        </button>
+        <button onClick={() => setCuadranteAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-emerald-500">
+          <Calendar className="w-4 h-4" />
+          <span className="text-[8px] uppercase font-bold tracking-widest">Cuadrante</span>
         </button>
       </div>
 
@@ -1113,6 +1168,72 @@ function DriverApp({ session }: { session: any }) {
                   </div>
                 );
              })}
+           </div>
+        </div>
+      )}
+      {cuadranteAbierto && (
+        <div className="absolute inset-0 bg-black/95 z-50 flex flex-col">
+           <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#111]">
+             <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4 text-emerald-500"/> Mi Cuadrante</h3>
+             <div className="flex gap-4 items-center">
+                 <button onClick={descargarAlmanaque} className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-3 py-1 rounded border border-emerald-500/20 text-[10px] font-bold uppercase"><Download className="w-3 h-3" /> Exportar</button>
+                 <button onClick={() => setCuadranteAbierto(false)}><X className="text-zinc-500 w-6 h-6 hover:text-white" /></button>
+             </div>
+           </div>
+           
+           <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center bg-[#050505]">
+             
+             {/* ZONA DE CAPTURA FOTOGRÁFICA */}
+             <div ref={cuadranteRef} className="bg-[#111] p-6 rounded-2xl border border-zinc-800 w-full max-w-sm shadow-2xl">
+                 <div className="text-center mb-6">
+                    <h2 className="text-xl font-black text-white uppercase tracking-widest">{mesCuadrante.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</h2>
+                    <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1 tracking-widest">Chofer: <span className="text-yellow-500">{perfil?.nombre_completo}</span></p>
+                 </div>
+                 
+                 <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[10px] font-bold text-zinc-500 uppercase">
+                    <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
+                 </div>
+                 
+                 <div className="grid grid-cols-7 gap-2">
+                    {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
+                       <div key={`empty-${i}`} className="p-2"></div>
+                    ))}
+                    
+                    {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
+                       const dia = i + 1;
+                       const year = mesCuadrante.getFullYear();
+                       const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
+                       const dayStr = String(dia).padStart(2, '0');
+                       const fechaStr = `${year}-${month}-${dayStr}`;
+                       
+                       const esLibre = diasCuadrante.some(d => d.fecha === fechaStr);
+                       
+                       return (
+                          <button 
+                             key={dia} 
+                             onClick={() => toggleDia(dia)}
+                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}
+                          >
+                             {dia}
+                          </button>
+                       )
+                    })}
+                 </div>
+
+                 {/* Leyenda Visual */}
+                 <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded shadow-[0_0_8px_rgba(239,68,68,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500/20 border border-emerald-500/50 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Día Libre</span></div>
+                 </div>
+             </div>
+             {/* FIN ZONA DE CAPTURA */}
+
+             {/* Navegación de Meses */}
+             <div className="flex gap-4 mt-8 w-full max-w-sm">
+                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Anterior</button>
+                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Siguiente</button>
+             </div>
+
            </div>
         </div>
       )}
