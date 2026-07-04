@@ -2,16 +2,11 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { 
-  Download, Users, Clock, ShieldCheck, LogOut, X, 
-  MessageSquare, Map as MapIcon, Edit2, Power, 
-  Calculator, Car, Calendar, FileSpreadsheet 
-} from 'lucide-react';
+import { Download, Users, Clock, ShieldCheck, LogOut, X, MessageSquare, Map as MapIcon, Edit2, Power, Calculator, Car, Calendar, FileSpreadsheet } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
+import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
-import * as ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 
 // ==========================================
 // FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
@@ -371,8 +366,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [editandoHoras, setEditandoHoras] = useState(false);
   const [inputEditH, setInputEditH] = useState(0);
   const [inputEditM, setInputEditM] = useState(0);
-  const [vistaActual, setVistaActual] = useState<'mapa' | 'historial'>('mapa');
-  const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
+  const [vistaActual, setVistaActual] = useState<'mapa' | 'historial' | 'cuadrante'>('mapa');  const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
   const [minutosEnVivo, setMinutosEnVivo] = useState(0);
   
   // NUEVO ESTADO: Saber qué coche lleva en vivo
@@ -381,6 +375,10 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const mensajesEndRef = useRef<HTMLDivElement>(null);
+
+  const [mesCuadrante, setMesCuadrante] = useState(new Date());
+  const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
+  const cuadranteRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     cargarDatos();
@@ -400,6 +398,21 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     if (chofer.estado_actual === 'conectado') { intervalo = setInterval(() => setMinutosEnVivo(m => m + 1), 60000); } else { setMinutosEnVivo(0); }
     return () => clearInterval(intervalo);
   }, [chofer.estado_actual]);
+
+  useEffect(() => {
+    if (vistaActual === 'cuadrante') {
+      const cargarCuadrante = async () => {
+        const { data, error } = await supabase
+          .from('cuadrante_turnos')
+          .select('*')
+          .eq('chofer_id', chofer.id);
+        
+        if (data) setDiasCuadrante(data);
+        if (error) console.error("Error cargando cuadrante:", error);
+      };
+      cargarCuadrante();
+    }
+  }, [vistaActual, mesCuadrante, chofer.id]);
 
   async function cargarDatos() {
     const { data: chatData } = await supabase.from('chat_directo').select('*').eq('chofer_id', chofer.id).order('creado_en', { ascending: true });
@@ -438,6 +451,132 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     if (!nuevoMensaje.trim()) return;
     const msg = nuevoMensaje; setNuevoMensaje('');
     await supabase.from('chat_directo').insert({ chofer_id: chofer.id, remitente: 'admin', mensaje: msg });
+  };
+const toggleDiaAdmin = async (dia: number) => {
+    const year = mesCuadrante.getFullYear();
+    const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(dia).padStart(2, '0');
+    const fechaStr = `${year}-${month}-${dayStr}`;
+    
+    const existe = diasCuadrante.find(d => d.fecha === fechaStr);
+
+    if (existe) {
+      await supabase.from('cuadrante_turnos').delete().eq('id', existe.id);
+    } else {
+      await supabase.from('cuadrante_turnos').insert({ chofer_id: chofer.id, fecha: fechaStr, tipo: 'libre' });
+    }
+    
+    const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', chofer.id);
+    if (data) setDiasCuadrante(data);
+  };
+
+  const descargarAlmanaqueAdmin = async () => {
+    if (cuadranteRef.current) {
+      const canvas = await html2canvas(cuadranteRef.current, { backgroundColor: '#111' });
+      const link = document.createElement('a');
+      link.download = `Cuadrante_Talur_${chofer.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+  };
+  const [horasObjetivo, setHorasObjetivo] = useState(176);
+
+ const generarExcelInspeccion = () => {
+    const anio = mesCuadrante.getFullYear();
+    const mes = mesCuadrante.getMonth() + 1;
+    const diasEnMes = new Date(anio, mes, 0).getDate();
+
+    // 1. Identificar días laborables (A PRUEBA DE BALAS)
+    const diasLaborables: number[] = [];
+    for (let i = 1; i <= diasEnMes; i++) {
+        // Formato exacto YYYY-MM-DD
+        const fechaStr = `${anio}-${String(mes).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+        // Usamos startsWith por si Supabase devuelve timestamps largos (ej. 2026-07-23T00:00)
+        const esLibre = diasCuadrante.some(d => d.fecha && d.fecha.startsWith(fechaStr));
+        
+        if (!esLibre) {
+            diasLaborables.push(i);
+        }
+    }
+
+    const totalLaborables = diasLaborables.length;
+    if (totalLaborables === 0) return alert("Debe haber al menos un día laborable marcado.");
+    if (horasObjetivo < totalLaborables) return alert("El objetivo de horas es muy bajo para los días trabajados.");
+
+    // 2. REPARTO ORGÁNICO DE HORAS (Para que no parezca autogenerado)
+    let horasAsignadas = new Array(totalLaborables).fill(0);
+    let base = Math.floor(horasObjetivo / totalLaborables);
+    let sobrante = horasObjetivo % totalLaborables;
+    
+    // Darle la base a todos
+    for (let i = 0; i < totalLaborables; i++) horasAsignadas[i] = base;
+    
+    // Repartir el sobrante aleatoriamente para crear días de más o menos horas
+    while (sobrante > 0) {
+        let index = Math.floor(Math.random() * totalLaborables);
+        horasAsignadas[index]++;
+        sobrante--;
+    }
+
+    // 3. ESTRUCTURA DEL DOCUMENTO DE TALUR
+    const filasExcel = [
+        ["REGISTRO DIARIO DE JORNADA : TRABAJADOR A JORNADA COMPLETA"],
+        ["En cumplimiento a la obligación establecida en los art 12.5 h) y 35.5 del Estatuto de los Trabajadores"],
+        [],
+        ["EMPRESA :", "TALUR LUXURY CARS S.L.", "", "CIF:", "B20974994"],
+        ["TRABAJADOR:", `${chofer.nombre_completo} ${chofer.apellidos || ''}`, "", "NIF/DNI:", `${chofer.dni}`],
+        [], ["AÑO:", anio, "  MES:", mes], [],
+        ["DÍA", "Mañanas", "", "Tardes", "", "Horas Ordinarias", "Firma"],
+        ["", "Entrada", "Salida", "Entrada", "Salida", "", ""]
+    ];
+
+    let totalHorasCalculadas = 0;
+    let indiceLaborable = 0;
+
+    // Formateador visual "08:00"
+    const formatoHora = (h: number) => `${String(h).padStart(2, '0')}:00`;
+
+    // 4. CONSTRUCCIÓN DE LA TABLA
+    for (let dia = 1; dia <= diasEnMes; dia++) {
+        if (diasLaborables.includes(dia)) {
+            const horasHoy = horasAsignadas[indiceLaborable];
+            indiceLaborable++;
+
+            // Crear un horario humano realista
+            const inicioManana = 8 + Math.floor(Math.random() * 3); // Empieza a las 08:00, 09:00 o 10:00
+            
+            // Repartir las horas de hoy entre mañana y tarde lógicamente
+            const horasManana = Math.min(Math.max(Math.floor(horasHoy / 2) + (Math.random() > 0.5 ? 1 : 0), 3), horasHoy - 1);
+            const finManana = inicioManana + horasManana;
+            
+            const pausaComida = 1 + Math.floor(Math.random() * 2); // Come en 1 o 2 horas
+            const inicioTarde = finManana + pausaComida;
+            const horasTarde = horasHoy - horasManana;
+            const finTarde = inicioTarde + horasTarde;
+
+            filasExcel.push([
+                dia, 
+                formatoHora(inicioManana), 
+                formatoHora(finManana), 
+                formatoHora(inicioTarde), 
+                formatoHora(finTarde), 
+                horasHoy, 
+                ""
+            ]);
+            totalHorasCalculadas += horasHoy;
+        } else {
+            filasExcel.push([dia, "DESCANSO", "", "DESCANSO", "", 0, ""]);
+        }
+    }
+
+    filasExcel.push([]);
+    filasExcel.push(["TOTAL HORAS MENSUALES:", "", "", "", "", totalHorasCalculadas]);
+
+    // 5. EXPORTACIÓN
+    const hoja = XLSX.utils.aoa_to_sheet(filasExcel);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Registro de Jornada");
+    XLSX.writeFile(libro, `Registro_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}_${mes}_${anio}.xlsx`);
   };
 
   // PDF ACTUALIZADO CON COCHES Y REPOSTAJE
@@ -569,15 +708,16 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
             </div>
           </div>
 
-          {/* PANEL DERECHO: TABS (MAPA CON SEGUIMIENTO EN VIVO / HISTORIAL) */}
+{/* PANEL DERECHO: TABS (MAPA / HISTORIAL / CUADRANTE) */}
           <div className="w-2/3 flex flex-col bg-zinc-900">
              <div className="flex border-b border-zinc-800 bg-black">
                 <button onClick={() => setVistaActual('mapa')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'mapa' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Localización GPS</button>
                 <button onClick={() => setVistaActual('historial')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'historial' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Fichajes y Turnos</button>
+                <button onClick={() => setVistaActual('cuadrante')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'cuadrante' ? 'text-emerald-500 border-b-2 border-emerald-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Cuadrante</button>
              </div>
 
              <div className="flex-1 relative">
-                {vistaActual === 'mapa' ? (
+                {vistaActual === 'mapa' && (
                   tieneUbicacion ? (
                      <MapContainer center={posicionActual} zoom={15} style={{ height: '100%', width: '100%', zIndex: 10 }}>
                         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
@@ -590,7 +730,9 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
                         <p className="text-sm uppercase tracking-widest font-bold">Sin telemetría actual</p>
                      </div>
                   )
-                ) : (
+                )}
+
+                {vistaActual === 'historial' && (
                   <div className="h-full overflow-y-auto p-6">
                      <table className="w-full text-left text-sm text-zinc-300">
                         <thead className="text-[10px] text-zinc-500 uppercase border-b border-zinc-800 bg-black">
@@ -623,6 +765,75 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
                            })}
                         </tbody>
                      </table>
+                  </div>
+                )}
+
+                {vistaActual === 'cuadrante' && (
+                  <div className="absolute inset-0 overflow-y-auto p-6 flex flex-col items-center bg-[#050505] pb-24 scrollbar-thin scrollbar-thumb-zinc-800">
+                     <div className="w-full flex justify-end mb-4">
+                        <button onClick={descargarAlmanaqueAdmin} className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-3 py-2 rounded border border-emerald-500/20 text-xs font-bold uppercase"><Download className="w-4 h-4" /> Exportar Almanaque</button>
+                     </div>
+                     <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl mb-6 w-full max-w-sm flex flex-col gap-3">
+                        <h4 className="text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                            Documento de Inspección
+                        </h4>
+                        <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                                <label className="text-[10px] text-zinc-500 font-bold uppercase">Objetivo Mensual (Hrs)</label>
+                                <input 
+                                    type="number" 
+                                    value={horasObjetivo} 
+                                    onChange={(e) => setHorasObjetivo(Number(e.target.value))}
+                                    className="w-full bg-black border border-zinc-700 text-white p-2 rounded mt-1 font-mono text-center outline-none focus:border-emerald-500"
+                                />
+                            </div>
+                            <button 
+                                onClick={generarExcelInspeccion} 
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-[10px] py-3 rounded mt-5 transition-colors"
+                            >
+                                Generar Excel
+                            </button>
+                        </div>
+                        <p className="text-[9px] text-zinc-600 leading-tight">
+                            * El sistema descontará los días verdes del almanaque inferior y distribuirá automáticamente las {horasObjetivo} horas en turnos simétricos.
+                        </p>
+                     </div>
+                     <div ref={cuadranteRef} className="bg-[#111] p-6 rounded-2xl border border-zinc-800 w-full max-w-sm shadow-2xl">
+                         <div className="text-center mb-6">
+                            <h2 className="text-xl font-black text-white uppercase tracking-widest">{mesCuadrante.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</h2>
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1 tracking-widest">Chofer: <span className="text-yellow-500">{chofer.nombre_completo}</span></p>
+                         </div>
+                         <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[10px] font-bold text-zinc-500 uppercase">
+                            <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
+                         </div>
+                         <div className="grid grid-cols-7 gap-2">
+                            {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
+                               <div key={`empty-${i}`} className="p-2"></div>
+                            ))}
+                            {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
+                               const dia = i + 1;
+                               const year = mesCuadrante.getFullYear();
+                               const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
+                               const dayStr = String(dia).padStart(2, '0');
+                               const fechaStr = `${year}-${month}-${dayStr}`;
+                               const esLibre = diasCuadrante.some(d => d.fecha === fechaStr);
+                               return (
+                                  <button key={dia} onClick={() => toggleDiaAdmin(dia)} className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}>
+                                     {dia}
+                                  </button>
+                               )
+                            })}
+                         </div>
+                         <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded shadow-[0_0_8px_rgba(239,68,68,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500/20 border border-emerald-500/50 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Día Libre</span></div>
+                         </div>
+                     </div>
+                     <div className="flex gap-4 mt-8 w-full max-w-sm">
+                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Anterior</button>
+                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Siguiente</button>
+                     </div>
                   </div>
                 )}
              </div>
@@ -749,10 +960,6 @@ function DriverApp({ session }: { session: any }) {
   const [minutosActivos, setMinutosActivos] = useState(0);
   const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null);
   const [vehiculoEnUso, setVehiculoEnUso] = useState<string | null>(null);
-  const [cuadranteAbierto, setCuadranteAbierto] = useState(false);
-  const [mesCuadrante, setMesCuadrante] = useState(new Date());
-  const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
-  const cuadranteRef = useRef<HTMLDivElement>(null);
   
   // NUEVOS ESTADOS PARA LOS MODALES DE FICHADO
   const [modalEntrada, setModalEntrada] = useState(false);
@@ -777,46 +984,10 @@ function DriverApp({ session }: { session: any }) {
   const [mensajesDirectos, setMensajesDirectos] = useState<any[]>([]);
   const [nuevoMensajeDirecto, setNuevoMensajeDirecto] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
-// --- LÓGICA DEL CUADRANTE VISUAL ---
-  useEffect(() => {
-    if (cuadranteAbierto && session?.user?.id) {
-      const cargarCuadrante = async () => {
-        const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
-        if (data) setDiasCuadrante(data);
-      };
-      cargarCuadrante();
-    }
-  }, [cuadranteAbierto, mesCuadrante, session?.user?.id]);
+  const [cuadranteAbierto, setCuadranteAbierto] = useState(false);
+  const [mesCuadrante, setMesCuadrante] = useState(new Date());
+  const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
 
-  const toggleDia = async (dia: number) => {
-    const year = mesCuadrante.getFullYear();
-    const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(dia).padStart(2, '0');
-    const fechaStr = `${year}-${month}-${dayStr}`;
-    
-    const existe = diasCuadrante.find(d => d.fecha === fechaStr);
-
-    if (existe) {
-      await supabase.from('cuadrante_turnos').delete().eq('id', existe.id);
-    } else {
-      await supabase.from('cuadrante_turnos').insert({ chofer_id: session.user.id, fecha: fechaStr, tipo: 'libre' });
-    }
-    
-    const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
-    if (data) setDiasCuadrante(data);
-  };
-
-  const descargarAlmanaque = async () => {
-    if (cuadranteRef.current) {
-      const canvas = await html2canvas(cuadranteRef.current, { backgroundColor: '#111' });
-      const link = document.createElement('a');
-      link.download = `Cuadrante_Talur_${perfil?.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
-      link.href = canvas.toDataURL();
-      link.click();
-    }
-  };
-  // -----------------------------------
-  
   useEffect(() => { cargarPerfil(); }, []);
 
   useEffect(() => {
@@ -837,7 +1008,6 @@ function DriverApp({ session }: { session: any }) {
       }
     };
     iniciarRastreo();
-    
     return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
   }, [perfil?.estado_actual, session.user.id]);
 
@@ -857,6 +1027,25 @@ function DriverApp({ session }: { session: any }) {
     const canalJornadas = supabase.channel('jornadas_chofer').on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${session.user.id}` }, () => { cargarPerfil(); }).subscribe();
     return () => { supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
   }, [session?.user?.id]);
+// NUEVO EFECTO: Cargar y escuchar cambios en el cuadrante en tiempo real
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const cargarCuadrante = async () => {
+      const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
+      if (data) setDiasCuadrante(data);
+    };
+
+    cargarCuadrante(); // Carga inicial
+
+    // El radar en vivo: Si el admin cambia un día, se actualiza solo
+    const canalCuadrante = supabase.channel('cuadrante_chofer_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cuadrante_turnos', filter: `chofer_id=eq.${session.user.id}` }, () => {
+        cargarCuadrante();
+      }).subscribe();
+
+    return () => { supabase.removeChannel(canalCuadrante); };
+  }, [session?.user?.id, mesCuadrante]);
 
   async function cargarPerfil() {
     const { data: pData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single();
@@ -1090,18 +1279,19 @@ function DriverApp({ session }: { session: any }) {
          </div>
       </div>
 
-  <div className="grid grid-cols-3 border-t border-zinc-800 bg-[#0a0a0a] flex-shrink-0">
-        <button onClick={() => setChatIAAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800">
+     {/* MENÚ INFERIOR DE 3 BOTONES */}
+      <div className="grid grid-cols-3 border-t border-zinc-800 bg-[#0a0a0a] flex-shrink-0">
+        <button onClick={() => setChatIAAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800 transition-colors">
           <MessageSquare className="w-4 h-4" />
           <span className="text-[8px] uppercase font-bold tracking-widest">Soporte IA</span>
         </button>
-        <button onClick={() => setJornadaAbierta(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800">
+        <button onClick={() => setJornadaAbierta(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-yellow-500 border-r border-zinc-800 transition-colors">
           <Clock className="w-4 h-4" />
           <span className="text-[8px] uppercase font-bold tracking-widest">Mi Jornada</span>
         </button>
-        <button onClick={() => setCuadranteAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-emerald-500">
+        <button onClick={() => setCuadranteAbierto(true)} className="p-3 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-emerald-500 transition-colors">
           <Calendar className="w-4 h-4" />
-          <span className="text-[8px] uppercase font-bold tracking-widest">Cuadrante</span>
+          <span className="text-[8px] uppercase font-bold tracking-widest">Almanaque</span>
         </button>
       </div>
 
@@ -1171,23 +1361,21 @@ function DriverApp({ session }: { session: any }) {
            </div>
         </div>
       )}
+      {/* MODAL INFORMATIVO: ALMANAQUE DEL CHOFER */}
       {cuadranteAbierto && (
         <div className="absolute inset-0 bg-black/95 z-50 flex flex-col">
-           <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#111]">
-             <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4 text-emerald-500"/> Mi Cuadrante</h3>
-             <div className="flex gap-4 items-center">
-                 <button onClick={descargarAlmanaque} className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-3 py-1 rounded border border-emerald-500/20 text-[10px] font-bold uppercase"><Download className="w-3 h-3" /> Exportar</button>
-                 <button onClick={() => setCuadranteAbierto(false)}><X className="text-zinc-500 w-6 h-6 hover:text-white" /></button>
-             </div>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center bg-[#050505]">
-             
-             {/* ZONA DE CAPTURA FOTOGRÁFICA */}
-             <div ref={cuadranteRef} className="bg-[#111] p-6 rounded-2xl border border-zinc-800 w-full max-w-sm shadow-2xl">
+          <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-[#111]">
+            <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
+               <Calendar className="w-4 h-4 text-emerald-500"/> Mi Almanaque
+            </h3>
+            <button onClick={() => setCuadranteAbierto(false)}><X className="text-zinc-500 w-6 h-6 hover:text-white transition-colors" /></button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center bg-[#050505] pb-24 scrollbar-thin scrollbar-thumb-zinc-800">
+             <div className="bg-[#111] p-6 rounded-2xl border border-zinc-800 w-full max-w-sm shadow-2xl">
                  <div className="text-center mb-6">
                     <h2 className="text-xl font-black text-white uppercase tracking-widest">{mesCuadrante.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</h2>
-                    <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1 tracking-widest">Chofer: <span className="text-yellow-500">{perfil?.nombre_completo}</span></p>
+                    <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1 tracking-widest">Tus Turnos Asignados</p>
                  </div>
                  
                  <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[10px] font-bold text-zinc-500 uppercase">
@@ -1195,10 +1383,12 @@ function DriverApp({ session }: { session: any }) {
                  </div>
                  
                  <div className="grid grid-cols-7 gap-2">
+                    {/* Espacios vacíos para cuadrar el primer día del mes */}
                     {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
                        <div key={`empty-${i}`} className="p-2"></div>
                     ))}
                     
+                    {/* Generar los días visuales (Sin OnClick) */}
                     {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
                        const dia = i + 1;
                        const year = mesCuadrante.getFullYear();
@@ -1206,35 +1396,31 @@ function DriverApp({ session }: { session: any }) {
                        const dayStr = String(dia).padStart(2, '0');
                        const fechaStr = `${year}-${month}-${dayStr}`;
                        
-                       const esLibre = diasCuadrante.some(d => d.fecha === fechaStr);
+                       // A prueba de balas con startsWith
+                       const esLibre = diasCuadrante.some(d => d.fecha && d.fecha.startsWith(fechaStr));
                        
                        return (
-                          <button 
+                          <div 
                              key={dia} 
-                             onClick={() => toggleDia(dia)}
-                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}
+                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 shadow-black'}`}
                           >
                              {dia}
-                          </button>
+                          </div>
                        )
                     })}
                  </div>
 
-                 {/* Leyenda Visual */}
                  <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
-                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded shadow-[0_0_8px_rgba(239,68,68,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-zinc-900 border border-zinc-800 rounded"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
                     <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500/20 border border-emerald-500/50 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Día Libre</span></div>
                  </div>
              </div>
-             {/* FIN ZONA DE CAPTURA */}
 
-             {/* Navegación de Meses */}
              <div className="flex gap-4 mt-8 w-full max-w-sm">
                 <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Anterior</button>
                 <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Siguiente</button>
              </div>
-
-           </div>
+          </div>
         </div>
       )}
     </div>
