@@ -579,7 +579,7 @@ const toggleDiaAdmin = async (dia: number) => {
     XLSX.writeFile(libro, `Registro_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}_${mes}_${anio}.xlsx`);
   };
 
-  // PDF ACTUALIZADO CON COCHES Y REPOSTAJE
+// PDF ACTUALIZADO CON COCHES, REPOSTAJE Y KILÓMETROS
   const descargarPDF = () => {
     const doc = new jsPDF();
     doc.text(`Reporte Oficial de Operaciones - TALUR LUXURY CARS`, 14, 15);
@@ -600,17 +600,22 @@ const toggleDiaAdmin = async (dia: number) => {
       }
       
       const coche = j.vehiculo ? j.vehiculo : 'No asignado';
-    let repostaje = '-'; // Si no puso nada, sale un guion
-      if (j.gasto_combustible && j.gasto_combustible > 0) {
+      
+      // --- LÓGICA DE REPOSTAJE Y KILÓMETROS ---
+      let repostaje = '-';
+      
+      if (j.gasto_combustible > 0) {
          repostaje = `€${j.gasto_combustible}`;
-         if (j.litros_combustible && j.litros_combustible > 0) {
+         if (j.litros_combustible > 0) {
             repostaje += ` (${j.litros_combustible}L)`;
          }
-         // AÑADIDO: Muestra los KM en el PDF si existen
-         if (j.kilometraje && j.kilometraje > 0) {
-            repostaje += ` - ${j.kilometraje} km`; 
+         if (j.kilometraje > 0) {
+            repostaje += `  |  ${j.kilometraje} km`;
          }
+      } else if (j.kilometraje > 0) {
+         repostaje = `${j.kilometraje} km`;
       }
+      // ---------------------------------------
 
       return [inicio, fin, duracion, coche, repostaje, j.estado];
     });
@@ -757,8 +762,15 @@ const toggleDiaAdmin = async (dia: number) => {
                                    </td>
                                    <td className="py-3 px-4 text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</td>
                                    <td className="py-3 px-4 font-mono text-xs">
-                                      {j.gasto_combustible > 0 ? (
-                                        <span className="text-white">€{j.gasto_combustible} {j.litros_combustible > 0 && <span className="text-zinc-500">({j.litros_combustible}L)</span>}</span>
+                                      {j.gasto_combustible > 0 || j.kilometraje > 0 ? (
+                                        <div className="flex flex-col gap-0.5">
+                                          {j.gasto_combustible > 0 && (
+                                              <span className="text-white">€{j.gasto_combustible} {j.litros_combustible > 0 && <span className="text-zinc-500">({j.litros_combustible}L)</span>}</span>
+                                          )}
+                                          {j.kilometraje > 0 && (
+                                              <span className="text-emerald-500 text-[10px] font-bold tracking-widest">KM: {j.kilometraje}</span>
+                                          )}
+                                        </div>
                                       ) : (
                                         <span className="text-zinc-600">-</span>
                                       )}
