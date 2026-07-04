@@ -600,11 +600,15 @@ const toggleDiaAdmin = async (dia: number) => {
       }
       
       const coche = j.vehiculo ? j.vehiculo : 'No asignado';
-      let repostaje = '-'; // Si no puso nada, sale un guion
+    let repostaje = '-'; // Si no puso nada, sale un guion
       if (j.gasto_combustible && j.gasto_combustible > 0) {
          repostaje = `€${j.gasto_combustible}`;
          if (j.litros_combustible && j.litros_combustible > 0) {
             repostaje += ` (${j.litros_combustible}L)`;
+         }
+         // AÑADIDO: Muestra los KM en el PDF si existen
+         if (j.kilometraje && j.kilometraje > 0) {
+            repostaje += ` - ${j.kilometraje} km`; 
          }
       }
 
@@ -967,6 +971,7 @@ function DriverApp({ session }: { session: any }) {
   const [cocheSeleccionado, setCocheSeleccionado] = useState("Mercedes Benz Sprinter 1");
   const [gastoDinero, setGastoDinero] = useState('');
   const [gastoLitros, setGastoLitros] = useState('');
+  const [kilometraje, setKilometraje] = useState(''); // <-- NUEVO ESTADO
 
   const flotaTalur = [
     "Mercedes Benz Sprinter 1", "Mercedes Benz Sprinter 2",
@@ -1118,7 +1123,8 @@ function DriverApp({ session }: { session: any }) {
         const { data: jornadaCerrada, error: errSalida } = await supabase.from('jornadas').update({ 
           hora_fin: fechaFin, ubicacion_fin: `${lat}, ${lng}`, estado: 'finalizada',
           gasto_combustible: gastoDinero ? parseFloat(gastoDinero) : 0,
-          litros_combustible: gastoLitros ? parseFloat(gastoLitros) : 0
+          litros_combustible: gastoLitros ? parseFloat(gastoLitros) : 0,
+          kilometraje: kilometraje ? parseFloat(kilometraje) : null // <-- AÑADIDO
         }).eq('id', jornadaActivaId).select().single();
 
         if (errSalida) throw errSalida;
@@ -1129,7 +1135,7 @@ function DriverApp({ session }: { session: any }) {
         }
       }
       setGastoDinero(''); setGastoLitros('');
-      await cargarPerfil();
+      await cargarPerfil();setKilometraje('');
     } catch (error: any) { alert("Error: " + error.message); }
     setActualizando(false);
   };
@@ -1198,7 +1204,12 @@ function DriverApp({ session }: { session: any }) {
                   <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Litros Gasoil (L)</label>
                   <input type="number" step="0.1" placeholder="Ej: 30.5" value={gastoLitros} onChange={e => setGastoLitros(e.target.value)} className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 outline-none focus:border-emerald-500 font-mono" />
                 </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Kilometraje (KM)</label>
+                  <input type="number" placeholder="Ej: 145000" value={kilometraje} onChange={e => setKilometraje(e.target.value)} className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 outline-none focus:border-emerald-500 font-mono" />
+                </div>
               </div>
+              
             ) : (
               <div className="mb-6 bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-xl text-center">
                  <p className="text-emerald-500 text-xs font-bold uppercase">Vehículo Eléctrico (Sin repostaje manual)</p>
@@ -1399,10 +1410,10 @@ function DriverApp({ session }: { session: any }) {
                        // A prueba de balas con startsWith
                        const esLibre = diasCuadrante.some(d => d.fecha && d.fecha.startsWith(fechaStr));
                        
-                       return (
+                    return (
                           <div 
                              key={dia} 
-                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 shadow-black'}`}
+                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}
                           >
                              {dia}
                           </div>
