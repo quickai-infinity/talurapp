@@ -730,7 +730,7 @@ const generarExcelInspeccion = () => {
           </div>
           <div className="flex items-center gap-4">
             <button onClick={descargarPDF} className="bg-yellow-500 text-black px-4 py-2 rounded font-bold text-xs flex items-center gap-2 hover:bg-yellow-400">
-              <Download className="w-4 h-4" /> Exportar PDF
+              <Download className="w-4 h-4" /> PDF INTERNO
             </button>
             <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors bg-zinc-800/50 p-2 rounded-full"><X className="w-6 h-6" /></button>
           </div>
