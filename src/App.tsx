@@ -663,7 +663,7 @@ const generarExcelInspeccion = () => {
     XLSX.writeFile(libro, `Registro_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}_${mes}_${anio}.xlsx`);
   };
 
-// PDF ACTUALIZADO CON COCHES, REPOSTAJE Y KILÓMETROS
+// PDF SENCILLO Y EXACTO CON TURNOS MANUALES E INCIDENCIAS
   const descargarPDF = () => {
     const doc = new jsPDF();
     doc.text(`Reporte Oficial de Operaciones - TALUR LUXURY CARS`, 14, 15);
@@ -675,8 +675,11 @@ const generarExcelInspeccion = () => {
     doc.text(`Horas Totales Aprobadas: ${Math.floor(pdfMinutos / 60)}h ${pdfMinutos % 60}m`, 14, 32);
 
     const tablaDatos = historialJornadas.map(j => {
-      const inicio = new Date(j.hora_inicio).toLocaleString();
-      const fin = j.hora_fin ? new Date(j.hora_fin).toLocaleString() : 'EN RUTA...';
+      const fecha = new Date(j.hora_inicio).toLocaleDateString('es-ES');
+      const turno = j.turno ? j.turno : '1er Turno';
+      const entrada = new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      const salida = j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'EN RUTA...';
+      
       let duracion = 'Activo';
       if (j.hora_fin) {
         const diffMins = Math.floor((new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime()) / 60000);
@@ -685,32 +688,28 @@ const generarExcelInspeccion = () => {
       
       const coche = j.vehiculo ? j.vehiculo : 'No asignado';
       
-      // --- LÓGICA DE REPOSTAJE Y KILÓMETROS ---
       let repostaje = '-';
-      
       if (j.gasto_combustible > 0) {
-         repostaje = `€${j.gasto_combustible}`;
-         if (j.litros_combustible > 0) {
-            repostaje += ` (${j.litros_combustible}L)`;
-         }
-         if (j.kilometraje > 0) {
-            repostaje += `  |  ${j.kilometraje} km`;
-         }
+         repostaje = `€${j.gasto_combustible} (${j.litros_combustible || 0}L)`;
       } else if (j.kilometraje > 0) {
          repostaje = `${j.kilometraje} km`;
       }
-      // ---------------------------------------
 
-      return [inicio, fin, duracion, coche, repostaje, j.estado];
+      const notas = j.incidencias ? j.incidencias : '-';
+
+      return [fecha, turno, entrada, salida, duracion, coche, repostaje, notas];
     });
 
     autoTable(doc, {
       startY: 40,
-      head: [['Entrada', 'Salida', 'Hrs', 'Vehículo', 'Repostaje', 'Estado']],
+      head: [['Fecha', 'Turno', 'Entrada', 'Salida', 'Hrs', 'Vehículo', 'Repostaje/KM', 'Incidencias']],
       body: tablaDatos,
       theme: 'grid',
       headStyles: { fillColor: [234, 179, 8], textColor: [0, 0, 0] },
-      styles: { fontSize: 8 }
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        7: { cellWidth: 35 } // Ancho específico para que las incidencias bajen de línea si son largas
+      }
     });
 
     doc.save(`Reporte_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}.pdf`);
@@ -954,9 +953,18 @@ const generarExcelInspeccion = () => {
                             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-500/20 border border-yellow-500/50 rounded shadow-[0_0_8px_rgba(234,179,8,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Vacaciones</span></div>
                          </div>
                      </div>
-                     <div className="flex gap-4 mt-8 w-full max-w-sm">
-                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Anterior</button>
-                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Siguiente</button>
+                     <div className="flex gap-2 mt-8 w-full max-w-sm">
+                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Anterior</button>
+                        
+                        {/* NUEVO BOTÓN ACTUALIZAR */}
+                        <button 
+                            onClick={() => setMesCuadrante(new Date(mesCuadrante.getTime()))} 
+                            className="flex-1 bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500/20 hover:text-yellow-400 transition-colors shadow-[0_0_10px_rgba(234,179,8,0.1)]"
+                        >
+                            Actualizar
+                        </button>
+                        
+                        <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Siguiente</button>
                      </div>
                   </div>
                 )}
@@ -1092,7 +1100,8 @@ function DriverApp({ session }: { session: any }) {
   const [gastoDinero, setGastoDinero] = useState('');
   const [gastoLitros, setGastoLitros] = useState('');
   const [kilometraje, setKilometraje] = useState(''); // <-- NUEVO ESTADO
-
+  const [turnoSeleccionado, setTurnoSeleccionado] = useState('1er Turno');
+  const [incidencias, setIncidencias] = useState('');
   const flotaTalur = [
     "Mercedes Benz Sprinter 1", "Mercedes Benz Sprinter 2",
     "Mercedes Minivan Clase V 1", "Mercedes Minivan Clase V 2", "Mercedes Minivan Clase V 3", "Mercedes Minivan Clase V 4",
@@ -1220,10 +1229,11 @@ function DriverApp({ session }: { session: any }) {
       const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
       const lat = pos.coords.latitude; const lng = pos.coords.longitude;
       
-      const { error: errEntrada } = await supabase.from('jornadas').insert({ 
-        chofer_id: session.user.id, hora_inicio: new Date().toISOString(), ubicacion_inicio: `${lat}, ${lng}`, estado: 'activa',
-        vehiculo: cocheSeleccionado // GUARDAMOS EL COCHE
-      }).select().single();
+     const { error: errEntrada } = await supabase.from('jornadas').insert({ 
+                chofer_id: session.user.id, hora_inicio: new Date().toISOString(), ubicacion_inicio: `${lat}, ${lng}`, estado: 'activa',
+                vehiculo: cocheSeleccionado, // GUARDAMOS EL COCHE
+                turno: turnoSeleccionado // <-- GUARDAMOS EL TURNO
+              }).select().single();
       
       if (errEntrada) throw errEntrada;
       await supabase.from('perfiles').update({ estado_actual: 'conectado', latitud: lat, longitud: lng }).eq('id', session.user.id);
@@ -1244,7 +1254,8 @@ function DriverApp({ session }: { session: any }) {
           hora_fin: fechaFin, ubicacion_fin: `${lat}, ${lng}`, estado: 'finalizada',
           gasto_combustible: gastoDinero ? parseFloat(gastoDinero) : 0,
           litros_combustible: gastoLitros ? parseFloat(gastoLitros) : 0,
-          kilometraje: kilometraje ? parseFloat(kilometraje) : null // <-- AÑADIDO
+          kilometraje: kilometraje ? parseFloat(kilometraje) : null,
+          incidencias: incidencias // <-- GUARDAMOS LAS INCIDENCIAS
         }).eq('id', jornadaActivaId).select().single();
 
         if (errSalida) throw errSalida;
@@ -1295,12 +1306,29 @@ function DriverApp({ session }: { session: any }) {
           <div className="bg-[#111] border border-zinc-800 p-6 rounded-2xl w-full">
             <h3 className="text-yellow-500 font-bold mb-4 uppercase tracking-widest text-sm">Seleccionar Vehículo</h3>
             <p className="text-xs text-zinc-400 mb-2">Asigna el coche de la flota para este servicio:</p>
-            <select value={cocheSeleccionado} onChange={(e) => setCocheSeleccionado(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-3 rounded mb-6 outline-none focus:border-yellow-500 text-sm">
+            <select value={cocheSeleccionado} onChange={(e) => setCocheSeleccionado(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-3 rounded mb-4 outline-none focus:border-yellow-500 text-sm">
               {flotaTalur.map(coche => <option key={coche} value={coche}>{coche}</option>)}
             </select>
+
+            {/* SELECTOR DE TURNO */}
+            <div className="flex gap-2 mb-6">
+               <button 
+                  onClick={() => setTurnoSeleccionado('1er Turno')}
+                  className={`flex-1 py-3 rounded-lg font-bold text-xs uppercase tracking-widest border transition-all ${turnoSeleccionado === '1er Turno' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}
+               >
+                  1er Turno
+               </button>
+               <button 
+                  onClick={() => setTurnoSeleccionado('2do Turno')}
+                  className={`flex-1 py-3 rounded-lg font-bold text-xs uppercase tracking-widest border transition-all ${turnoSeleccionado === '2do Turno' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}
+               >
+                  2do Turno
+               </button>
+            </div>
+
             <div className="flex gap-3">
               <button onClick={() => setModalEntrada(false)} className="flex-1 bg-zinc-800 text-white p-3 rounded font-bold text-xs uppercase">Cancelar</button>
-              <button onClick={confirmarEntrada} className="flex-1 bg-yellow-500 text-black p-3 rounded font-bold text-xs uppercase">Iniciar Ruta</button>
+              <button onClick={confirmarEntrada} className="flex-1 bg-yellow-500 text-black p-3 rounded font-bold text-xs uppercase">Iniciar {turnoSeleccionado}</button>
             </div>
           </div>
         </div>
@@ -1327,6 +1355,17 @@ function DriverApp({ session }: { session: any }) {
                 <div>
                   <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Kilometraje (KM)</label>
                   <input type="number" placeholder="Ej: 145000" value={kilometraje} onChange={e => setKilometraje(e.target.value)} className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 outline-none focus:border-emerald-500 font-mono" />
+                </div>
+
+                {/* CUADRO DE INCIDENCIAS */}
+                <div className="mt-4 pt-4 border-t border-zinc-800">
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Incidencias / Observaciones</label>
+                  <textarea 
+                     value={incidencias} 
+                     onChange={e => setIncidencias(e.target.value)} 
+                     placeholder="Ej: Se rompió una luz, falta aceite..." 
+                     className="w-full bg-[#111] border border-zinc-700 text-white p-3 rounded mt-1 text-xs min-h-[60px] resize-none outline-none focus:border-emerald-500"
+                  />
                 </div>
               </div>
               
