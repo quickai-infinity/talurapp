@@ -533,7 +533,7 @@ const generarExcelInspeccion = () => {
     let indiceLaborable = 0;
     const formatoHora = (h: number, m: number) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    // 4. Procesamiento Día a Día hibridando Base de Datos Real + Cálculos
+  // 4. Procesamiento Día a Día hibridando Base de Datos Real + Cálculos
     for (let dia = 1; dia <= diasEnMes; dia++) {
         const fechaBusqueda = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
         const estadoCuadrante = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaBusqueda));
@@ -543,54 +543,70 @@ const generarExcelInspeccion = () => {
         } else if (estadoCuadrante && estadoCuadrante.tipo === 'vacaciones') {
             filasExcel.push([dia, "VACACIONES", "", "VACACIONES", "", 0, ""]);
         } else {
-            // ES UN DÍA LABORAL - Aplicar el Híbrido
+            // ES UN DÍA LABORAL
             const horasHoy = horasAsignadas[indiceLaborable];
             indiceLaborable++;
             totalHorasCalculadas += horasHoy;
 
-            // Buscar si fichó REALMENTE este día en Supabase
             const jornadasDelDia = historialJornadas.filter(j => j.hora_inicio.startsWith(fechaBusqueda));
             
-            let hInicio = 9; // Hora por defecto si se le olvidó fichar (9:00 AM)
-            let mInicio = Math.floor(Math.random() * 15); // Minuto random para naturalidad
+            let hInicio = 9; 
+            let mInicio = Math.floor(Math.random() * 15); 
             
             if (jornadasDelDia.length > 0) {
-                // Tomar el fichaje real de la BD
                 const primeraJornada = jornadasDelDia[jornadasDelDia.length - 1]; 
                 const fechaReal = new Date(primeraJornada.hora_inicio);
                 hInicio = fechaReal.getHours();
                 mInicio = fechaReal.getMinutes();
             }
 
-            // Lógica para que se vea natural en el Excel (Turno Partido vs Turno Continuo)
+            // Total de minutos que DEBE trabajar para que el Excel cuadre perfecto
+            const totalMinutosTrabajo = horasHoy * 60;
+            const inicioMinutosAbsolutos = (hInicio * 60) + mInicio;
+
+            // Función helper para pasar minutos totales a formato HH:MM
+            const minToString = (minsTotal: number) => {
+                let h = Math.floor(minsTotal / 60);
+                let m = minsTotal % 60;
+                if (h >= 24) h -= 24; // Formato 24h para madrugada
+                return formatoHora(h, m);
+            };
+
+            // Lógica para que se vea natural (Descuadre orgánico de minutos)
             if (hInicio < 14 && horasHoy >= 6) {
-                // Si entró por la mañana y trabaja más de 6 horas, partimos el turno (Ej: 09:00 a 13:00 y 14:00 a 18:00)
-                const horasManana = Math.floor(horasHoy / 2);
-                const horasTarde = horasHoy - horasManana;
+                // TURNO PARTIDO (Empieza por la mañana)
                 
-                let hFinManana = hInicio + horasManana;
-                let hInicioTarde = hFinManana + 1; // 1 hora de descanso para comer
-                let hFinTarde = hInicioTarde + horasTarde;
+                // Le damos entre 40% y 60% del tiempo a la mañana para que no sea siempre mitad y mitad
+                const porcentajeManana = (40 + Math.floor(Math.random() * 21)) / 100;
+                let minutosManana = Math.floor(totalMinutosTrabajo * porcentajeManana);
                 
+                // El resto es para la tarde (garantiza que la suma es exacta)
+                let minutosTarde = totalMinutosTrabajo - minutosManana;
+                
+                // La pausa del almuerzo será aleatoria (entre 45 y 90 minutos)
+                let pausaAlmuerzo = 45 + Math.floor(Math.random() * 46);
+
+                let finMananaMins = inicioMinutosAbsolutos + minutosManana;
+                let inicioTardeMins = finMananaMins + pausaAlmuerzo;
+                let finTardeMins = inicioTardeMins + minutosTarde;
+
                 filasExcel.push([
                     dia, 
-                    formatoHora(hInicio, mInicio), // Entrada Real BD
-                    formatoHora(hFinManana, mInicio), 
-                    formatoHora(hInicioTarde, mInicio), 
-                    formatoHora(hFinTarde, mInicio), // Salida Cuadrada
+                    minToString(inicioMinutosAbsolutos), // Entrada Mañana (Real)
+                    minToString(finMananaMins),          // Salida Mañana (Orgánica)
+                    minToString(inicioTardeMins),        // Entrada Tarde (Orgánica)
+                    minToString(finTardeMins),           // Salida Tarde (Calculada exacta)
                     horasHoy, 
                     ""
                 ]);
             } else {
-                // Turno continuo (Ej: Entró a las 15:00 o es turno nocturno)
-                let hFin = hInicio + horasHoy;
-                let mFin = mInicio;
-                if (hFin >= 24) hFin -= 24; // Ajuste si pasa de medianoche
+                // TURNO CONTINUO (Tarde/Noche) - Suma directa de las 8 horas
+                let finMins = inicioMinutosAbsolutos + totalMinutosTrabajo;
                 
                 filasExcel.push([
                     dia, 
-                    formatoHora(hInicio, mInicio), // Entrada Real BD
-                    formatoHora(hFin, mFin), // Salida Cuadrada
+                    minToString(inicioMinutosAbsolutos), // Entrada Real
+                    minToString(finMins),                // Salida
                     "-", 
                     "-", 
                     horasHoy, 
