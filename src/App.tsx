@@ -1527,13 +1527,21 @@ function DriverApp({ session }: { session: any }) {
                        const dayStr = String(dia).padStart(2, '0');
                        const fechaStr = `${year}-${month}-${dayStr}`;
                        
-                       // A prueba de balas con startsWith
-                       const esLibre = diasCuadrante.some(d => d.fecha && d.fecha.startsWith(fechaStr));
+                       // Buscar el estado exacto del día en la base de datos
+                       const estadoDia = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaStr));
+                               
+                       // Aplicar el color correspondiente
+                       let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'; // Rojo / Laboral
+                       if (estadoDia?.tipo === 'libre') {
+                           colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20'; // Verde
+                       } else if (estadoDia?.tipo === 'vacaciones') {
+                           colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
+                       }
                        
                     return (
                           <div 
                              key={dia} 
-                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}
+                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${colorClases}`}
                           >
                              {dia}
                           </div>
@@ -1542,8 +1550,9 @@ function DriverApp({ session }: { session: any }) {
                  </div>
 
                  <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
-                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-zinc-900 border border-zinc-800 rounded"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded shadow-[0_0_8px_rgba(239,68,68,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
                     <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500/20 border border-emerald-500/50 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Día Libre</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-500/20 border border-yellow-500/50 rounded shadow-[0_0_8px_rgba(234,179,8,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Vacaciones</span></div>
                  </div>
              </div>
 
