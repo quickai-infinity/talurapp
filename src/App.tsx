@@ -901,7 +901,7 @@ const generarExcelInspeccion = () => {
                          </div>
                          
                          {/* BOTÓN AMARILLO */}
-                         <div className="flex justify-center mb-6">
+                         <div className="flex justify-center mb-6 print:hidden" data-html2canvas-ignore="true">
                             <button
                                 onClick={() => setModoVacaciones(!modoVacaciones)}
                                 className={`px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-colors border ${
