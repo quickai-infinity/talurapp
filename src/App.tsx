@@ -372,6 +372,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   
   // NUEVO ESTADO: Saber qué coche lleva en vivo
   const [vehiculoEnVivo, setVehiculoEnVivo] = useState<string | null>(null);
+  const [turnoEnVivo, setTurnoEnVivo] = useState<string | null>(null); // <-- NUEVO ESTADO PARA EL TURNO
 
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
@@ -427,9 +428,11 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
          const diff = new Date().getTime() - new Date(activa.hora_inicio).getTime();
          setMinutosEnVivo(Math.floor(diff / 60000));
          setVehiculoEnVivo(activa.vehiculo); // Guardamos el coche actual
+         setTurnoEnVivo(activa.turno); // <-- LEEMOS EL TURNO
        } else {
          setMinutosEnVivo(0);
          setVehiculoEnVivo(null);
+         setTurnoEnVivo(null); // <-- LIMPIAMOS EL TURNO
        }
     }
   }
@@ -731,7 +734,7 @@ const generarExcelInspeccion = () => {
             <p className="text-zinc-500 font-mono text-sm mt-1">DNI/NIE: {chofer.dni} | Tel: {chofer.telefono}</p>
             {vehiculoEnVivo && (
               <div className="mt-2 flex items-center gap-2 text-emerald-500 font-bold uppercase text-[10px] bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 w-fit animate-pulse">
-                 <Car className="w-3 h-3" /> EN RUTA: {vehiculoEnVivo}
+                 <Car className="w-3 h-3" /> [{turnoEnVivo || '1er Turno'}] EN RUTA: {vehiculoEnVivo}
               </div>
             )}
           </div>
@@ -843,7 +846,10 @@ const generarExcelInspeccion = () => {
                                       <p className="font-bold text-white">{new Date(j.hora_inicio).toLocaleDateString()}</p>
                                       <p className="font-mono text-xs text-zinc-500">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}</p>
                                    </td>
-                                   <td className="py-3 px-4 text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</td>
+                                   <td className="py-3 px-4">
+                                      <p className="text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</p>
+                                      <p className="text-[10px] font-bold text-zinc-500 uppercase mt-0.5">{j.turno || '1er Turno'}</p>
+                                   </td>
                                    <td className="py-3 px-4 font-mono text-xs">
                                       {j.gasto_combustible > 0 || j.kilometraje > 0 ? (
                                         <div className="flex flex-col gap-0.5">
