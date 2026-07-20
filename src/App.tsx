@@ -368,6 +368,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [inputEditM, setInputEditM] = useState(0);
   const [vistaActual, setVistaActual] = useState<'mapa' | 'historial' | 'cuadrante'>('mapa');  const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
   const [minutosEnVivo, setMinutosEnVivo] = useState(0);
+  const [modoVacaciones, setModoVacaciones] = useState(false);
   
   // NUEVO ESTADO: Saber qué coche lleva en vivo
   const [vehiculoEnVivo, setVehiculoEnVivo] = useState<string | null>(null);
@@ -458,12 +459,20 @@ const toggleDiaAdmin = async (dia: number) => {
     const dayStr = String(dia).padStart(2, '0');
     const fechaStr = `${year}-${month}-${dayStr}`;
     
-    const existe = diasCuadrante.find(d => d.fecha === fechaStr);
+    const existe = diasCuadrante.find((d: any) => d.fecha === fechaStr);
 
-    if (existe) {
-      await supabase.from('cuadrante_turnos').delete().eq('id', existe.id);
+    if (modoVacaciones) {
+        if (existe) {
+            await supabase.from('cuadrante_turnos').update({ tipo: 'vacaciones' }).eq('id', existe.id);
+        } else {
+            await supabase.from('cuadrante_turnos').insert({ chofer_id: chofer.id, fecha: fechaStr, tipo: 'vacaciones' });
+        }
     } else {
-      await supabase.from('cuadrante_turnos').insert({ chofer_id: chofer.id, fecha: fechaStr, tipo: 'libre' });
+        if (existe) {
+            await supabase.from('cuadrante_turnos').delete().eq('id', existe.id);
+        } else {
+            await supabase.from('cuadrante_turnos').insert({ chofer_id: chofer.id, fecha: fechaStr, tipo: 'libre' });
+        }
     }
     
     const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', chofer.id);
@@ -472,11 +481,30 @@ const toggleDiaAdmin = async (dia: number) => {
 
   const descargarAlmanaqueAdmin = async () => {
     if (cuadranteRef.current) {
-      const canvas = await html2canvas(cuadranteRef.current, { backgroundColor: '#111' });
-      const link = document.createElement('a');
-      link.download = `Cuadrante_Talur_${chofer.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
-      link.href = canvas.toDataURL();
-      link.click();
+      // 1. Forzamos colores claros antes de la captura
+      const div = cuadranteRef.current;
+      const bgOriginal = div.style.backgroundColor;
+      const colorOriginal = div.style.color;
+      
+      div.style.backgroundColor = '#ffffff';
+      div.style.color = '#000000';
+      div.classList.add('text-black'); // Fuerza letras negras
+
+      try {
+          const canvas = await html2canvas(div, { 
+              backgroundColor: '#ffffff',
+              scale: 2 
+          });
+          const link = document.createElement('a');
+          link.download = `Cuadrante_Talur_${chofer.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
+          link.href = canvas.toDataURL();
+          link.click();
+      } finally {
+          // 2. Restauramos modo oscuro sin que el usuario lo note
+          div.style.backgroundColor = bgOriginal;
+          div.style.color = colorOriginal;
+          div.classList.remove('text-black');
+      }
     }
   };
   const [horasObjetivo, setHorasObjetivo] = useState(176);
@@ -541,7 +569,8 @@ const generarExcelInspeccion = () => {
         if (estadoCuadrante && estadoCuadrante.tipo === 'libre') {
             filasExcel.push([dia, "DESCANSO", "", "DESCANSO", "", 0, ""]);
         } else if (estadoCuadrante && estadoCuadrante.tipo === 'vacaciones') {
-            filasExcel.push([dia, "VACACIONES", "", "VACACIONES", "", 0, ""]);
+            filasExcel.push([dia, "VACACIONES", "", "VACACIONES", "", 8, ""]);
+            totalHorasCalculadas += 8; // ¡Muy importante para que sumen al final del mes!
         } else {
             // ES UN DÍA LABORAL
             const horasHoy = horasAsignadas[indiceLaborable];
@@ -863,10 +892,25 @@ const generarExcelInspeccion = () => {
                         </p>
                      </div>
                      <div ref={cuadranteRef} className="bg-[#111] p-6 rounded-2xl border border-zinc-800 w-full max-w-sm shadow-2xl">
-                         <div className="text-center mb-6">
+                         <div className="text-center mb-4">
                             <h2 className="text-xl font-black text-white uppercase tracking-widest">{mesCuadrante.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</h2>
                             <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1 tracking-widest">Chofer: <span className="text-yellow-500">{chofer.nombre_completo}</span></p>
                          </div>
+                         
+                         {/* BOTÓN AMARILLO */}
+                         <div className="flex justify-center mb-6">
+                            <button
+                                onClick={() => setModoVacaciones(!modoVacaciones)}
+                                className={`px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-colors border ${
+                                    modoVacaciones 
+                                    ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.3)]' 
+                                    : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-white'
+                                }`}
+                            >
+                                {modoVacaciones ? '🟡 MODO VACACIONES ACTIVADO' : '⚪ ACTIVAR VACACIONES'}
+                            </button>
+                         </div>
+
                          <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[10px] font-bold text-zinc-500 uppercase">
                             <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
                          </div>
@@ -880,9 +924,17 @@ const generarExcelInspeccion = () => {
                                const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
                                const dayStr = String(dia).padStart(2, '0');
                                const fechaStr = `${year}-${month}-${dayStr}`;
-                               const esLibre = diasCuadrante.some(d => d.fecha === fechaStr);
+                               const estadoDia = diasCuadrante.find((d: any) => d.fecha === fechaStr);
+                               
+                               let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'; // Rojo / Laboral
+                               if (estadoDia?.tipo === 'libre') {
+                                   colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20'; // Verde
+                               } else if (estadoDia?.tipo === 'vacaciones') {
+                                   colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
+                               }
+
                                return (
-                                  <button key={dia} onClick={() => toggleDiaAdmin(dia)} className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${esLibre ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'}`}>
+                                  <button key={dia} onClick={() => toggleDiaAdmin(dia)} className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}>
                                      {dia}
                                   </button>
                                )
@@ -891,6 +943,7 @@ const generarExcelInspeccion = () => {
                          <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
                             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded shadow-[0_0_8px_rgba(239,68,68,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Laboral</span></div>
                             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500/20 border border-emerald-500/50 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Día Libre</span></div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-500/20 border border-yellow-500/50 rounded shadow-[0_0_8px_rgba(234,179,8,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Vacaciones</span></div>
                          </div>
                      </div>
                      <div className="flex gap-4 mt-8 w-full max-w-sm">
