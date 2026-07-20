@@ -514,31 +514,39 @@ const generarExcelInspeccion = () => {
     const mes = mesCuadrante.getMonth() + 1;
     const diasEnMes = new Date(anio, mes, 0).getDate();
 
-    // 1. Identificar días laborables descontando Libres y Vacaciones
+    // 1. Identificar días laborables y contar días de vacaciones
     const diasLaborables = [];
+    let diasVacaciones = 0; // NUEVO: Contador de vacaciones
+
     for (let i = 1; i <= diasEnMes; i++) {
         const fechaStr = `${anio}-${String(mes).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
         const estadoCuadrante = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaStr));
         
-        // Si no está en el cuadrante (es rojo/laboral) o está explícitamente como laboral
-        if (!estadoCuadrante || estadoCuadrante.tipo === 'laboral') {
-            diasLaborables.push({ dia: i, fechaStr });
+        if (estadoCuadrante && estadoCuadrante.tipo === 'vacaciones') {
+            diasVacaciones++; // Sumamos un día de vacaciones
+        } else if (!estadoCuadrante || estadoCuadrante.tipo === 'laboral') {
+            diasLaborables.push({ dia: i, fechaStr }); // Es un día de trabajo
         }
     }
 
     const totalLaborables = diasLaborables.length;
-    if (totalLaborables === 0) return alert("Error: Todo el mes está libre. Debes dejar días en rojo para poder repartir las horas.");
-    if (horasObjetivo < totalLaborables) return alert("El objetivo de horas es muy bajo para la cantidad de días trabajados.");
+    if (totalLaborables === 0) return alert("Error: Todo el mes está libre o en vacaciones. Debes dejar días en rojo.");
 
-    // 2. Reparto matemático exacto para cuadrar las horas objetivo (Ej: 176)
+    // 2. Reparto matemático CORREGIDO
+    const horasVacacionesTotales = diasVacaciones * 8; // 8 horas por cada día amarillo
+    const horasARepartir = horasObjetivo - horasVacacionesTotales; // Restamos las vacaciones al objetivo principal
+
+    if (horasARepartir < 0) return alert("Error: Las horas de vacaciones superan el objetivo mensual.");
+    if (horasARepartir < totalLaborables && horasARepartir > 0) return alert("El objetivo de horas es muy bajo para la cantidad de días trabajados.");
+
     let horasAsignadas = new Array(totalLaborables).fill(0);
-    let base = Math.floor(horasObjetivo / totalLaborables);
-    let sobrante = horasObjetivo % totalLaborables;
+    let base = Math.floor(horasARepartir / totalLaborables);
+    let sobrante = horasARepartir % totalLaborables;
     
-    // Todos reciben la base (ej. 8 horas)
+    // Todos reciben la base
     for (let i = 0; i < totalLaborables; i++) horasAsignadas[i] = base;
     
-    // Repartimos el sobrante aleatoriamente para que se vea humano (algunos días 8h, otros 9h)
+    // Repartimos el sobrante aleatoriamente
     while (sobrante > 0) {
         let index = Math.floor(Math.random() * totalLaborables);
         horasAsignadas[index]++;
