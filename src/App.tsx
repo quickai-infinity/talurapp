@@ -959,17 +959,8 @@ const generarExcelInspeccion = () => {
                             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-500/20 border border-yellow-500/50 rounded shadow-[0_0_8px_rgba(234,179,8,0.3)]"></div><span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">Vacaciones</span></div>
                          </div>
                      </div>
-                     <div className="flex gap-2 mt-8 w-full max-w-sm">
+                   <div className="flex gap-2 mt-8 w-full max-w-sm">
                         <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Anterior</button>
-                        
-                        {/* NUEVO BOTÓN ACTUALIZAR */}
-                        <button 
-                            onClick={() => setMesCuadrante(new Date(mesCuadrante.getTime()))} 
-                            className="flex-1 bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500/20 hover:text-yellow-400 transition-colors shadow-[0_0_10px_rgba(234,179,8,0.1)]"
-                        >
-                            Actualizar
-                        </button>
-                        
                         <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Siguiente</button>
                      </div>
                   </div>
@@ -1601,9 +1592,17 @@ function DriverApp({ session }: { session: any }) {
                  </div>
              </div>
 
-             <div className="flex gap-4 mt-8 w-full max-w-sm">
-                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Anterior</button>
-                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Mes Siguiente</button>
+             <div className="flex gap-2 mt-8 w-full max-w-sm">
+                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() - 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Anterior</button>
+                
+                <button 
+                    onClick={() => setMesCuadrante(new Date(mesCuadrante.getTime()))} 
+                    className="flex-1 bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500/20 hover:text-yellow-400 transition-colors shadow-[0_0_10px_rgba(234,179,8,0.1)]"
+                >
+                    Actualizar
+                </button>
+                
+                <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Siguiente</button>
              </div>
           </div>
         </div>
