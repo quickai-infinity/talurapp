@@ -481,44 +481,43 @@ const toggleDiaAdmin = async (dia: number) => {
   };
   const [horasObjetivo, setHorasObjetivo] = useState(176);
 
- const generarExcelInspeccion = () => {
+const generarExcelInspeccion = () => {
     const anio = mesCuadrante.getFullYear();
     const mes = mesCuadrante.getMonth() + 1;
     const diasEnMes = new Date(anio, mes, 0).getDate();
 
-    // 1. Identificar días laborables (A PRUEBA DE BALAS)
-    const diasLaborables: number[] = [];
+    // 1. Identificar días laborables descontando Libres y Vacaciones
+    const diasLaborables = [];
     for (let i = 1; i <= diasEnMes; i++) {
-        // Formato exacto YYYY-MM-DD
         const fechaStr = `${anio}-${String(mes).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-        // Usamos startsWith por si Supabase devuelve timestamps largos (ej. 2026-07-23T00:00)
-        const esLibre = diasCuadrante.some(d => d.fecha && d.fecha.startsWith(fechaStr));
+        const estadoCuadrante = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaStr));
         
-        if (!esLibre) {
-            diasLaborables.push(i);
+        // Si no está en el cuadrante (es rojo/laboral) o está explícitamente como laboral
+        if (!estadoCuadrante || estadoCuadrante.tipo === 'laboral') {
+            diasLaborables.push({ dia: i, fechaStr });
         }
     }
 
     const totalLaborables = diasLaborables.length;
-    if (totalLaborables === 0) return alert("Debe haber al menos un día laborable marcado.");
-    if (horasObjetivo < totalLaborables) return alert("El objetivo de horas es muy bajo para los días trabajados.");
+    if (totalLaborables === 0) return alert("Error: Todo el mes está libre. Debes dejar días en rojo para poder repartir las horas.");
+    if (horasObjetivo < totalLaborables) return alert("El objetivo de horas es muy bajo para la cantidad de días trabajados.");
 
-    // 2. REPARTO ORGÁNICO DE HORAS (Para que no parezca autogenerado)
+    // 2. Reparto matemático exacto para cuadrar las horas objetivo (Ej: 176)
     let horasAsignadas = new Array(totalLaborables).fill(0);
     let base = Math.floor(horasObjetivo / totalLaborables);
     let sobrante = horasObjetivo % totalLaborables;
     
-    // Darle la base a todos
+    // Todos reciben la base (ej. 8 horas)
     for (let i = 0; i < totalLaborables; i++) horasAsignadas[i] = base;
     
-    // Repartir el sobrante aleatoriamente para crear días de más o menos horas
+    // Repartimos el sobrante aleatoriamente para que se vea humano (algunos días 8h, otros 9h)
     while (sobrante > 0) {
         let index = Math.floor(Math.random() * totalLaborables);
         horasAsignadas[index]++;
         sobrante--;
     }
 
-    // 3. ESTRUCTURA DEL DOCUMENTO DE TALUR
+    // 3. Estructura del Documento Oficial de Inspección
     const filasExcel = [
         ["REGISTRO DIARIO DE JORNADA : TRABAJADOR A JORNADA COMPLETA"],
         ["En cumplimiento a la obligación establecida en los art 12.5 h) y 35.5 del Estatuto de los Trabajadores"],
@@ -532,47 +531,79 @@ const toggleDiaAdmin = async (dia: number) => {
 
     let totalHorasCalculadas = 0;
     let indiceLaborable = 0;
+    const formatoHora = (h: number, m: number) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    // Formateador visual "08:00"
-    const formatoHora = (h: number) => `${String(h).padStart(2, '0')}:00`;
-
-    // 4. CONSTRUCCIÓN DE LA TABLA
+    // 4. Procesamiento Día a Día hibridando Base de Datos Real + Cálculos
     for (let dia = 1; dia <= diasEnMes; dia++) {
-        if (diasLaborables.includes(dia)) {
+        const fechaBusqueda = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+        const estadoCuadrante = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaBusqueda));
+
+        if (estadoCuadrante && estadoCuadrante.tipo === 'libre') {
+            filasExcel.push([dia, "DESCANSO", "", "DESCANSO", "", 0, ""]);
+        } else if (estadoCuadrante && estadoCuadrante.tipo === 'vacaciones') {
+            filasExcel.push([dia, "VACACIONES", "", "VACACIONES", "", 0, ""]);
+        } else {
+            // ES UN DÍA LABORAL - Aplicar el Híbrido
             const horasHoy = horasAsignadas[indiceLaborable];
             indiceLaborable++;
-
-            // Crear un horario humano realista
-            const inicioManana = 8 + Math.floor(Math.random() * 3); // Empieza a las 08:00, 09:00 o 10:00
-            
-            // Repartir las horas de hoy entre mañana y tarde lógicamente
-            const horasManana = Math.min(Math.max(Math.floor(horasHoy / 2) + (Math.random() > 0.5 ? 1 : 0), 3), horasHoy - 1);
-            const finManana = inicioManana + horasManana;
-            
-            const pausaComida = 1 + Math.floor(Math.random() * 2); // Come en 1 o 2 horas
-            const inicioTarde = finManana + pausaComida;
-            const horasTarde = horasHoy - horasManana;
-            const finTarde = inicioTarde + horasTarde;
-
-            filasExcel.push([
-                dia, 
-                formatoHora(inicioManana), 
-                formatoHora(finManana), 
-                formatoHora(inicioTarde), 
-                formatoHora(finTarde), 
-                horasHoy, 
-                ""
-            ]);
             totalHorasCalculadas += horasHoy;
-        } else {
-            filasExcel.push([dia, "DESCANSO", "", "DESCANSO", "", 0, ""]);
+
+            // Buscar si fichó REALMENTE este día en Supabase
+            const jornadasDelDia = historialJornadas.filter(j => j.hora_inicio.startsWith(fechaBusqueda));
+            
+            let hInicio = 9; // Hora por defecto si se le olvidó fichar (9:00 AM)
+            let mInicio = Math.floor(Math.random() * 15); // Minuto random para naturalidad
+            
+            if (jornadasDelDia.length > 0) {
+                // Tomar el fichaje real de la BD
+                const primeraJornada = jornadasDelDia[jornadasDelDia.length - 1]; 
+                const fechaReal = new Date(primeraJornada.hora_inicio);
+                hInicio = fechaReal.getHours();
+                mInicio = fechaReal.getMinutes();
+            }
+
+            // Lógica para que se vea natural en el Excel (Turno Partido vs Turno Continuo)
+            if (hInicio < 14 && horasHoy >= 6) {
+                // Si entró por la mañana y trabaja más de 6 horas, partimos el turno (Ej: 09:00 a 13:00 y 14:00 a 18:00)
+                const horasManana = Math.floor(horasHoy / 2);
+                const horasTarde = horasHoy - horasManana;
+                
+                let hFinManana = hInicio + horasManana;
+                let hInicioTarde = hFinManana + 1; // 1 hora de descanso para comer
+                let hFinTarde = hInicioTarde + horasTarde;
+                
+                filasExcel.push([
+                    dia, 
+                    formatoHora(hInicio, mInicio), // Entrada Real BD
+                    formatoHora(hFinManana, mInicio), 
+                    formatoHora(hInicioTarde, mInicio), 
+                    formatoHora(hFinTarde, mInicio), // Salida Cuadrada
+                    horasHoy, 
+                    ""
+                ]);
+            } else {
+                // Turno continuo (Ej: Entró a las 15:00 o es turno nocturno)
+                let hFin = hInicio + horasHoy;
+                let mFin = mInicio;
+                if (hFin >= 24) hFin -= 24; // Ajuste si pasa de medianoche
+                
+                filasExcel.push([
+                    dia, 
+                    formatoHora(hInicio, mInicio), // Entrada Real BD
+                    formatoHora(hFin, mFin), // Salida Cuadrada
+                    "-", 
+                    "-", 
+                    horasHoy, 
+                    ""
+                ]);
+            }
         }
     }
 
     filasExcel.push([]);
-    filasExcel.push(["TOTAL HORAS MENSUALES:", "", "", "", "", totalHorasCalculadas]);
+    filasExcel.push(["TOTAL HORAS MENSUALES:", "", "", "", "", totalHorasCalculadas, ""]);
 
-    // 5. EXPORTACIÓN
+    // 5. Exportación
     const hoja = XLSX.utils.aoa_to_sheet(filasExcel);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Registro de Jornada");
