@@ -747,9 +747,8 @@ const generarExcelInspeccion = () => {
   const displayMins = totalMinutos % 60;
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-[#111] border border-zinc-800 w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl">
-        
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 md:p-4 backdrop-blur-sm">
+      <div className="bg-[#111] md:border border-zinc-800 w-full max-w-5xl h-[100dvh] md:h-[85vh] rounded-none md:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         {/* Cabecera con Indicador de Coche en Vivo */}
         <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-zinc-900/50">
           <div>
@@ -769,7 +768,9 @@ const generarExcelInspeccion = () => {
           </div>
         </div>
 
-        <div className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-zinc-800 p-4 lg:p-6 flex flex-col gap-4 flex-shrink-0 lg:overflow-hidden">
+        {/* CONTENEDOR PRINCIPAL RESPONSIVE (Columna en móvil, Fila en PC) */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+          
           {/* PANEL IZQUIERDO: HORAS Y CHAT */}
           <div className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-zinc-800 p-4 lg:p-6 flex flex-col gap-4 flex-shrink-0 lg:overflow-hidden">
             
@@ -1010,22 +1011,31 @@ const generarExcelInspeccion = () => {
                                    colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
                                }
 
-       return (
-   <button 
-      key={dia} 
-      onClick={() => {
-         // Click normal: cambia estado laboral/libre/vacaciones
-         toggleDiaAdmin(dia);
-      }}
-      onContextMenu={(e) => {
-         // Click derecho (o mantenido): abre el creador de servicios para esa fecha
-         e.preventDefault();
-         setModalServicioFecha(fechaStr);
-      }}
-      className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}
-   >
-      {dia}
-   </button>
+    let pressTimer: any;
+                               
+                               return (
+                           <button 
+                              key={dia} 
+                              onClick={() => {
+                                 toggleDiaAdmin(dia);
+                              }}
+                              onContextMenu={(e) => {
+                                 e.preventDefault();
+                                 setModalServicioFecha(fechaStr);
+                              }}
+                              onTouchStart={() => {
+                                 pressTimer = setTimeout(() => {
+                                    setModalServicioFecha(fechaStr);
+                                 }, 600);
+                              }}
+                              onTouchEnd={() => clearTimeout(pressTimer)}
+                              onTouchMove={() => clearTimeout(pressTimer)}
+                              className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}
+                           >
+                              {dia}
+                           </button>
+
+                
 
                                )
                             })}
