@@ -807,7 +807,7 @@ const generarExcelInspeccion = () => {
               )}
             </div>
 
-            <div className="flex-1 bg-black border border-zinc-800 rounded-xl flex flex-col overflow-hidden min-h-0">
+            <div className="h-[350px] lg:h-auto lg:flex-1 bg-black border border-zinc-800 rounded-xl flex flex-col overflow-hidden min-h-0 mb-4 lg:mb-0">
               <div className="bg-zinc-900/50 p-3 border-b border-zinc-800 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-emerald-500" />
                 <h3 className="text-white text-xs font-bold uppercase tracking-wider">Chat Operaciones</h3>
@@ -893,7 +893,7 @@ const generarExcelInspeccion = () => {
                 )}
 
                 {vistaActual === 'historial' && (
-                  <div className="h-full overflow-y-auto p-6">
+                  <div className="h-auto lg:h-full lg:absolute lg:inset-0 lg:overflow-y-auto p-4 lg:p-6">
                      <table className="w-full text-left text-sm text-zinc-300">
                         <thead className="text-[10px] text-zinc-500 uppercase border-b border-zinc-800 bg-black">
                            <tr>
@@ -993,10 +993,7 @@ const generarExcelInspeccion = () => {
                             <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
                          </div>
                          <div className="grid grid-cols-7 gap-2">
-                            {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
-                               <div key={`empty-${i}`} className="p-2"></div>
-                            ))}
-                            {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
+                         {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
                                const dia = i + 1;
                                const year = mesCuadrante.getFullYear();
                                const month = String(mesCuadrante.getMonth() + 1).padStart(2, '0');
@@ -1004,39 +1001,34 @@ const generarExcelInspeccion = () => {
                                const fechaStr = `${year}-${month}-${dayStr}`;
                                const estadoDia = diasCuadrante.find((d: any) => d.fecha === fechaStr);
                                
-                               let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'; // Rojo / Laboral
+                               let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10';
                                if (estadoDia?.tipo === 'libre') {
-                                   colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20'; // Verde
+                                   colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20';
                                } else if (estadoDia?.tipo === 'vacaciones') {
-                                   colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
+                                   colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20';
                                }
 
-    let pressTimer: any;
-                               
+                               let temporizador: any; // Declarado de forma segura para evitar errores
+
                                return (
-                           <button 
-                              key={dia} 
-                              onClick={() => {
-                                 toggleDiaAdmin(dia);
-                              }}
-                              onContextMenu={(e) => {
-                                 e.preventDefault();
-                                 setModalServicioFecha(fechaStr);
-                              }}
-                              onTouchStart={() => {
-                                 pressTimer = setTimeout(() => {
-                                    setModalServicioFecha(fechaStr);
-                                 }, 600);
-                              }}
-                              onTouchEnd={() => clearTimeout(pressTimer)}
-                              onTouchMove={() => clearTimeout(pressTimer)}
-                              className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}
-                           >
-                              {dia}
-                           </button>
-
-                
-
+                                   <button 
+                                      key={dia} 
+                                      onClick={() => toggleDiaAdmin(dia)}
+                                      onContextMenu={(e) => {
+                                         e.preventDefault();
+                                         setModalServicioFecha(fechaStr);
+                                      }}
+                                      onTouchStart={() => {
+                                         temporizador = setTimeout(() => {
+                                            setModalServicioFecha(fechaStr);
+                                         }, 600);
+                                      }}
+                                      onTouchEnd={() => clearTimeout(temporizador)}
+                                      onTouchMove={() => clearTimeout(temporizador)}
+                                      className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}
+                                   >
+                                      {dia}
+                                   </button>
                                )
                             })}
                          </div>
