@@ -769,9 +769,9 @@ const generarExcelInspeccion = () => {
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-zinc-800 p-4 lg:p-6 flex flex-col gap-4 flex-shrink-0 lg:overflow-hidden">
           {/* PANEL IZQUIERDO: HORAS Y CHAT */}
-          <div className="w-1/3 border-r border-zinc-800 p-6 flex flex-col gap-4 overflow-hidden">
+          <div className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-zinc-800 p-4 lg:p-6 flex flex-col gap-4 flex-shrink-0 lg:overflow-hidden">
             
             <div className="bg-black border border-zinc-800 p-4 rounded-xl flex-shrink-0">
               <div className="flex justify-between items-center mb-2">
@@ -868,7 +868,7 @@ const generarExcelInspeccion = () => {
 )}
 
 {/* PANEL DERECHO: TABS (MAPA / HISTORIAL / CUADRANTE) */}
-          <div className="w-2/3 flex flex-col bg-zinc-900">
+          <div className="w-full lg:w-2/3 flex flex-col bg-zinc-900 min-h-[500px] lg:min-h-0">
              <div className="flex border-b border-zinc-800 bg-black">
                 <button onClick={() => setVistaActual('mapa')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'mapa' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Localización GPS</button>
                 <button onClick={() => setVistaActual('historial')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-widest ${vistaActual === 'historial' ? 'text-yellow-500 border-b-2 border-yellow-500 bg-zinc-900/50' : 'text-zinc-500'}`}>Fichajes y Turnos</button>
@@ -1279,8 +1279,8 @@ useEffect(() => {
     }, (payload) => {
       setMensajesDirectos((prev) => [...prev, payload.new]);
 
-      // SI EL ADMIN ENVÍA UN SERVICIO, REPRODUCIR SONIDO
-      if (payload.new.remitente === 'admin' && payload.new.fecha_servicio) {
+      // SI EL ADMIN ENVÍA UN MENSAJE, REPRODUCIR SONIDO SIEMPRE
+      if (payload.new.remitente === 'admin') {
         audioMensajeRef.current?.play().catch(() => {});
       }
 
@@ -1330,6 +1330,17 @@ useEffect(() => {
     const { data: cData } = await supabase.from('chat_directo').select('*').eq('chofer_id', session.user.id).order('creado_en', { ascending: true });
     if (cData) { setMensajesDirectos(cData); setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
     setLoading(false);
+  }
+
+  const confirmarServicioActivo = async () => {
+    if (!diaServicioActivo) return;
+    const { error } = await supabase.from('chat_directo').insert({ 
+      chofer_id: session.user.id, 
+      remitente: 'chofer', 
+      mensaje: 'Servicio confirmado', 
+      fecha_servicio: diaServicioActivo 
+    });
+    if (error) alert("Error de conexión al confirmar.");
   }
 
   const enviarMensajeDirecto = async () => {
@@ -1800,7 +1811,7 @@ audioAlarmaRef.current?.pause();
             <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
                {mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).map((m) => (
                   <div key={m.id} className={`flex ${m.remitente === 'chofer' ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`p-3 rounded-lg text-xs max-w-[85%] ${m.remitente === 'chofer' ? (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white') : 'bg-blue-600 text-white font-bold shadow-lg'}`}>
+                     <div className={`p-3 rounded-lg text-xs max-w-[85%] whitespace-pre-wrap break-words ${m.remitente === 'chofer' ? (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white') : 'bg-blue-600 text-white font-bold shadow-lg'}`}>
                         {m.mensaje}
                      </div>
                   </div>
@@ -1810,10 +1821,8 @@ audioAlarmaRef.current?.pause();
             <div className="p-4 bg-[#0a0a0a] border-t border-zinc-800 flex flex-col gap-3 rounded-b-2xl">
                {!mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).some(m => m.mensaje === 'Servicio confirmado') && (
                   <button 
-                     onClick={() => {
-                        supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: 'Servicio confirmado', fecha_servicio: diaServicioActivo });
-                     }} 
-                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black text-sm shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all uppercase tracking-widest"
+                     onClick={confirmarServicioActivo} 
+                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black text-sm shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all uppercase tracking-widest active:scale-95"
                   >
                      Servicio Confirmado
                   </button>
