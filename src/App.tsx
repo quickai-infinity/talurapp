@@ -31,6 +31,22 @@ function AutoCentrarMapa({ posicion }: { posicion: [number, number] }) {
   }, [posicion, map]);
   return null;
 }
+// ==========================================
+// MOTOR DE GEOCERCA (TALUR LUXURY CARS)
+// ==========================================
+function calcularDistancia(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3; 
+  const p1 = lat1 * Math.PI / 180;
+  const p2 = lat2 * Math.PI / 180;
+  const dp = (lat2 - lat1) * Math.PI / 180;
+  const dl = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+// Coordenadas extraídas de tu enlace de Bing Maps
+const COORDENADAS_NAVE = { lat: 43.298503, lng: -1.942888 }; 
+const RADIO_NAVE = 150; // 150 metros a la redonda para detectar llegada
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -1073,6 +1089,11 @@ function RegistroChofer({ onAdd, adminEmail }: { onAdd: () => void, adminEmail: 
 // APP DEL CHOFER (CON SELECCIÓN DE FLOTA Y GASTOS)
 // ==========================================
 function DriverApp({ session }: { session: any }) {
+  const audioAlarmaRef = useRef<HTMLAudioElement | null>(null);
+  const audioMensajeRef = useRef<HTMLAudioElement | null>(null);
+  const [alertaNave, setAlertaNave] = useState<'inicio' | 'fin' | null>(null);
+  const [haSalidoNave, setHaSalidoNave] = useState(false);
+  const [diaServicioActivo, setDiaServicioActivo] = useState<string | null>(null);
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [actualizando, setActualizando] = useState(false);
@@ -1111,26 +1132,62 @@ function DriverApp({ session }: { session: any }) {
 
   useEffect(() => { cargarPerfil(); }, []);
 
-  useEffect(() => {
+useEffect(() => {
     let watchId: string | null = null;
     const iniciarRastreo = async () => {
-      if (perfil?.estado_actual === 'conectado') {
-        const permisos = await Geolocation.checkPermissions();
-        if (permisos.location === 'granted') {
-          watchId = await Geolocation.watchPosition(
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-            async (pos, _err) => {
-              if (pos) {
-                await supabase.from('perfiles').update({ latitud: pos.coords.latitude, longitud: pos.coords.longitude }).eq('id', session.user.id);
+      const permisos = await Geolocation.checkPermissions();
+      if (permisos.location === 'granted') {
+        watchId = await Geolocation.watchPosition(
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+          async (pos, _err) => {
+            if (pos) {
+              const lat = pos.coords.latitude;
+              const lng = pos.coords.longitude;
+              
+              if (perfil?.estado_actual === 'conectado') {
+                await supabase.from('perfiles').update({ latitud: lat, longitud: lng }).eq('id', session.user.id);
+              }
+
+              // --- CÁLCULO DE PROXIMIDAD A LA NAVE ---
+              const dist = calcularDistancia(lat, lng, COORDENADAS_NAVE.lat, COORDENADAS_NAVE.lng);
+              const enNave = dist <= RADIO_NAVE;
+
+              if (perfil?.estado_actual === 'desconectado') {
+                 if (enNave) {
+                    // LLEGÓ A LA NAVE Y NO HA ABIERTO TURNO
+                    if (alertaNave !== 'inicio') {
+                       setAlertaNave('inicio');
+                       audioAlarmaRef.current?.play().catch(()=>{});
+                    }
+                 } else {
+                    // ESTÁ LEJOS (EN CASA, ETC) Y NO ESTÁ TRABAJANDO
+                    setAlertaNave(null);
+                    audioAlarmaRef.current?.pause();
+                 }
+                 setHaSalidoNave(false); // Reseteamos por si acaba de cerrar turno
+                 
+              } else if (perfil?.estado_actual === 'conectado') {
+                 if (!enNave) {
+                    // SE ALEJÓ DE LA NAVE CON EL TURNO ACTIVO (EN RUTA) -> SILENCIO
+                    setHaSalidoNave(true);
+                    setAlertaNave(null);
+                    audioAlarmaRef.current?.pause();
+                 } else if (enNave && haSalidoNave) {
+                    // ESTABA EN RUTA (haSalidoNave) Y VOLVIÓ A ENTRAR A LA ZONA DE LA NAVE
+                    if (alertaNave !== 'fin') {
+                       setAlertaNave('fin');
+                       audioAlarmaRef.current?.play().catch(()=>{});
+                    }
+                 }
               }
             }
-          );
-        }
+          }
+        );
       }
     };
-    iniciarRastreo();
+    if (perfil) iniciarRastreo(); 
     return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
-  }, [perfil?.estado_actual, session.user.id]);
+  }, [perfil?.estado_actual, session.user.id, haSalidoNave, alertaNave]);
 
   useEffect(() => {
     let intervalo: any;
@@ -1208,6 +1265,8 @@ function DriverApp({ session }: { session: any }) {
 
   const confirmarEntrada = async () => {
     setModalEntrada(false); setActualizando(true);
+    setAlertaNave(null);
+audioAlarmaRef.current?.pause();
     try {
       let permisos = await Geolocation.checkPermissions();
       if (permisos.location !== 'granted') permisos = await Geolocation.requestPermissions();
@@ -1231,6 +1290,8 @@ function DriverApp({ session }: { session: any }) {
 
   const confirmarSalida = async () => {
     setModalSalida(false); setActualizando(true);
+    setAlertaNave(null);
+audioAlarmaRef.current?.pause();
     try {
       const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
       const lat = pos.coords.latitude; const lng = pos.coords.longitude;
@@ -1545,7 +1606,7 @@ function DriverApp({ session }: { session: any }) {
                        <div key={`empty-${i}`} className="p-2"></div>
                     ))}
                     
-                    {/* Generar los días visuales (Sin OnClick) */}
+                // Generar los días visuales (CON DETECCIÓN DE SERVICIOS Y ONCLICK)
                     {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
                        const dia = i + 1;
                        const year = mesCuadrante.getFullYear();
@@ -1556,23 +1617,63 @@ function DriverApp({ session }: { session: any }) {
                        // Buscar el estado exacto del día en la base de datos
                        const estadoDia = diasCuadrante.find(d => d.fecha && d.fecha.startsWith(fechaStr));
                                
-                       // Aplicar el color correspondiente
+                       // Aplicar el color correspondiente base
                        let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10'; // Rojo / Laboral
                        if (estadoDia?.tipo === 'libre') {
                            colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20'; // Verde
                        } else if (estadoDia?.tipo === 'vacaciones') {
                            colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
                        }
+
+                       // --- NUEVA LÓGICA: DETECTAR SI HAY SERVICIO ASIGNADO ESE DÍA ---
+                       const mensajesDelDia = mensajesDirectos.filter(m => m.fecha_servicio === fechaStr);
+                       const tieneServicio = mensajesDelDia.length > 0;
+                       const confirmado = mensajesDelDia.some(m => m.mensaje === 'Servicio confirmado');
+
+                       if (tieneServicio) {
+                          colorClases = confirmado 
+                             ? 'bg-blue-900/50 text-blue-300 border border-blue-500' // Confirmado
+                             : 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)] cursor-pointer hover:scale-105'; // Nuevo/Pendiente
+                       }
                        
-                    return (
+                       return (
                           <div 
                              key={dia} 
-                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg ${colorClases}`}
+                             onClick={() => {
+                                // SI HAY SERVICIO, SE ABRE EL CHAT AL HACER CLIC
+                                if (tieneServicio) setDiaServicioActivo(fechaStr); 
+                             }}
+                             className={`aspect-square flex items-center justify-center rounded text-sm font-bold shadow-lg transition-all ${colorClases} ${tieneServicio ? 'cursor-pointer' : ''}`}
                           >
                              {dia}
                           </div>
                        )
                     })}
+                    {/* POP-UP DE ALERTA GPS EN LA NAVE */}
+      {alertaNave && (
+        <div className="absolute inset-0 bg-red-900/95 z-[100] flex flex-col items-center justify-center p-6 text-center backdrop-blur-md animate-pulse">
+          <MapIcon className="w-20 h-20 text-white mb-6 animate-bounce" />
+          <h2 className="text-3xl font-black text-white uppercase tracking-widest mb-4">
+            {alertaNave === 'inicio' ? '¡ABRE TU TURNO!' : '¡CIERRA TU TURNO!'}
+          </h2>
+          <p className="text-red-200 text-sm font-bold mb-8">
+            El sistema detecta que estás en Talur Luxury Cars. 
+            {alertaNave === 'inicio' 
+              ? ' Recuerda iniciar jornada.' 
+              : ' Recuerda cerrar sesión y reportar gastos al terminar.'}
+          </p>
+          <button 
+             onClick={() => {
+                setAlertaNave(null);
+                audioAlarmaRef.current?.pause();
+                botonPrincipalClick(); // Abre el modal de selección de coche o reporte de gastos
+             }}
+             className="bg-white text-red-900 px-8 py-4 rounded-xl font-black uppercase tracking-widest shadow-2xl hover:scale-105 transition-transform"
+          >
+            {alertaNave === 'inicio' ? 'INICIAR AHORA' : 'CERRAR AHORA'}
+          </button>
+        </div>
+      )}
                  </div>
 
                  <div className="mt-8 flex justify-between px-4 border-t border-zinc-800 pt-4">
@@ -1594,6 +1695,61 @@ function DriverApp({ session }: { session: any }) {
                 
                 <button onClick={() => setMesCuadrante(new Date(mesCuadrante.setFullYear(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 1)))} className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-400 p-3 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-white hover:border-zinc-600 transition-colors">Siguiente</button>
              </div>
+          </div>
+        </div>
+      )}
+      {/* AUDIOS NATIVOS - ARCHIVOS EXACTOS DE LA CARPETA PUBLIC */}
+      <audio ref={audioAlarmaRef} src="/alarma-abre-turno.mp4" loop />
+      <audio ref={audioMensajeRef} src="/mensaje-nuevo-servicio.mp4" />
+      {/* MODAL SERVICIO DEL DÍA CHOFER (AQUÍ SE USA diaServicioActivo) */}
+      {diaServicioActivo && (
+        <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col p-4 items-center justify-center backdrop-blur-md">
+          <div className="bg-[#111] border border-blue-900/50 rounded-2xl w-full h-[80vh] flex flex-col shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+            
+            <div className="p-4 border-b border-blue-900/30 bg-blue-900/10 flex justify-between items-center rounded-t-2xl">
+               <h3 className="text-blue-400 font-bold uppercase tracking-widest text-xs">
+                  Instrucciones: {diaServicioActivo}
+               </h3>
+               {/* AQUÍ SE USA setDiaServicioActivo PARA CERRAR EL MODAL */}
+               <button onClick={() => setDiaServicioActivo(null)} className="text-zinc-500"><X className="w-6 h-6"/></button>
+            </div>
+
+            <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
+               {mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).map((m) => (
+                  <div key={m.id} className={`flex ${m.remitente === 'chofer' ? 'justify-end' : 'justify-start'}`}>
+                     <div className={`p-3 rounded-lg text-xs max-w-[85%] ${m.remitente === 'chofer' ? (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white') : 'bg-blue-600 text-white font-bold shadow-lg'}`}>
+                        {m.mensaje}
+                     </div>
+                  </div>
+               ))}
+            </div>
+
+            <div className="p-4 bg-[#0a0a0a] border-t border-zinc-800 flex flex-col gap-3 rounded-b-2xl">
+               {!mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).some(m => m.mensaje === 'Servicio confirmado') && (
+                  <button 
+                     onClick={() => {
+                        supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: 'Servicio confirmado', fecha_servicio: diaServicioActivo });
+                     }} 
+                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black text-sm shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all uppercase tracking-widest"
+                  >
+                     Servicio Confirmado
+                  </button>
+               )}
+               
+               <div className="flex gap-2">
+                  <input type="text" id="inputChatDiaChofer" placeholder="¿Dudas sobre este servicio?" onKeyDown={(e) => {
+                     if (e.key === 'Enter') {
+                         const msg = (e.target as HTMLInputElement).value;
+                         if (msg.trim()) {
+                             supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
+                                 (document.getElementById('inputChatDiaChofer') as HTMLInputElement).value = '';
+                             });
+                         }
+                     }
+                  }} className="flex-1 bg-black border border-zinc-700 rounded-lg p-3 text-xs text-white focus:border-blue-500 outline-none" />
+               </div>
+            </div>
+
           </div>
         </div>
       )}
