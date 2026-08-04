@@ -1685,12 +1685,11 @@ audioAlarmaRef.current?.pause();
                  </div>
                  
                  <div className="grid grid-cols-7 gap-2">
-                    {/* Espacios vacíos para cuadrar el primer día del mes */}
                     {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
                        <div key={`empty-${i}`} className="p-2"></div>
                     ))}
                     
-                // Generar los días visuales (CON DETECCIÓN DE SERVICIOS Y ONCLICK)
+                
                     {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
                        const dia = i + 1;
                        const year = mesCuadrante.getFullYear();
