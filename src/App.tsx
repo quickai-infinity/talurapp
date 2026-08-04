@@ -415,6 +415,34 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
   const cuadranteRef = useRef<HTMLDivElement>(null);
 
+// MOTOR UNIVERSAL PARA DESCARGAS EN MÓVIL Y PC
+  const descargarArchivoMovil = async (blob: Blob, nombreArchivo: string) => {
+    const file = new File([blob], nombreArchivo, { type: blob.type });
+
+    // Intento 1: Usar el menú nativo del móvil (Compartir/Guardar en Archivos)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: nombreArchivo,
+          text: `Documento adjunto: ${nombreArchivo}`
+        });
+        return; // Si el móvil abre el menú con éxito, terminamos aquí.
+      } catch (error) {
+        console.log('Interacción cancelada por el usuario o no soportada.');
+      }
+    }
+
+    // Intento 2: Fallback tradicional para la PC
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nombreArchivo;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
   useEffect(() => {
     cargarDatos();
     const canalRadar = supabase.channel(`radar_${chofer.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
@@ -527,14 +555,13 @@ const toggleDiaAdmin = async (dia: number) => {
       div.classList.add('text-black'); // Fuerza letras negras
 
       try {
-          const canvas = await html2canvas(div, { 
+        const canvas = await html2canvas(div, { 
               backgroundColor: '#ffffff',
               scale: 2 
           });
-          const link = document.createElement('a');
-          link.download = `Cuadrante_Talur_${chofer.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`;
-          link.href = canvas.toDataURL();
-          link.click();
+          canvas.toBlob((blob) => {
+             if (blob) descargarArchivoMovil(blob, `Cuadrante_Talur_${chofer.nombre_completo}_${mesCuadrante.getMonth() + 1}.png`);
+          }, 'image/png');
       } finally {
           // 2. Restauramos modo oscuro sin que el usuario lo note
           div.style.backgroundColor = bgOriginal;
@@ -683,10 +710,14 @@ const generarExcelInspeccion = () => {
     filasExcel.push(["TOTAL HORAS MENSUALES:", "", "", "", "", totalHorasCalculadas, ""]);
 
     // 5. Exportación
-    const hoja = XLSX.utils.aoa_to_sheet(filasExcel);
+  const hoja = XLSX.utils.aoa_to_sheet(filasExcel);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Registro de Jornada");
-    XLSX.writeFile(libro, `Registro_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}_${mes}_${anio}.xlsx`);
+    
+    const excelBuffer = XLSX.write(libro, { bookType: 'xlsx', type: 'array' });
+    const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    
+    descargarArchivoMovil(excelBlob, `Registro_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}_${mes}_${anio}.xlsx`);
   };
 
 // PDF SENCILLO Y EXACTO CON TURNOS MANUALES E INCIDENCIAS
@@ -738,7 +769,12 @@ const generarExcelInspeccion = () => {
       }
     });
 
-    doc.save(`Reporte_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}.pdf`);
+
+    // Extraemos el PDF como ArrayBuffer y lo convertimos a Blob (compatible con todas las versiones)
+    const pdfBuffer = doc.output('arraybuffer');
+    const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+    
+    descargarArchivoMovil(pdfBlob, `Reporte_Talur_${chofer.nombre_completo.replace(/\s/g, '_')}.pdf`);
   };
 
   const baseMinutos = Math.round(horas * 60);
