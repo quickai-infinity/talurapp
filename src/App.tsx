@@ -341,18 +341,18 @@ function AdminDashboard({ session }: { session: any }) {
              </div>
 
              <div className="p-3 border-t border-zinc-800 bg-black flex gap-2">
-               <input 
-                 type="text" 
-                 value={mensajeIA} 
-                 onChange={e => setMensajeIA(e.target.value)} 
-                 onKeyDown={(e) => e.key === 'Enter' && enviarMensajeIA()}
-                 placeholder="Consultar al agente..." 
-                 className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white focus:border-yellow-500 focus:outline-none transition-colors" 
-               />
-               <button onClick={enviarMensajeIA} disabled={enviandoIA} className="bg-yellow-500 text-black px-4 rounded font-bold uppercase text-[10px] tracking-wider hover:bg-yellow-400 disabled:opacity-50">
-                 Enviar
-               </button>
-             </div>
+  <input 
+    type="text"
+    value={mensajeIA}
+    onChange={(e) => setMensajeIA(e.target.value)}
+    onKeyDown={(e) => e.key === 'Enter' && enviarMensajeIA()}
+    placeholder="Consultar al agente..."
+    className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white focus:border-yellow-500 focus:outline-none transition-colors"
+  />
+  <button onClick={enviarMensajeIA} disabled={enviandoIA} className="bg-yellow-500 text-black px-4 rounded font-bold uppercase text-[10px] tracking-wider hover:bg-yellow-400 disabled:opacity-50">
+    Enviar
+  </button>
+</div>
           </div>
 
         </div>
@@ -385,6 +385,23 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [vistaActual, setVistaActual] = useState<'mapa' | 'historial' | 'cuadrante'>('mapa');  const [historialJornadas, setHistorialJornadas] = useState<any[]>([]);
   const [minutosEnVivo, setMinutosEnVivo] = useState(0);
   const [modoVacaciones, setModoVacaciones] = useState(false);
+  const [modalServicioFecha, setModalServicioFecha] = useState<string | null>(null);
+  const [textoServicio, setTextoServicio] = useState('');
+
+  const enviarServicioAdmin = async () => {
+    if (!textoServicio.trim() || !modalServicioFecha) return;
+
+    await supabase.from('chat_directo').insert({
+      chofer_id: chofer.id,
+      remitente: 'admin',
+      mensaje: textoServicio,
+      fecha_servicio: modalServicioFecha
+    });
+
+    setTextoServicio('');
+    setModalServicioFecha(null);
+    alert('Servicio enviado correctamente al chofer.');
+  };
   
   // NUEVO ESTADO: Saber qué coche lleva en vivo
   const [vehiculoEnVivo, setVehiculoEnVivo] = useState<string | null>(null);
@@ -808,6 +825,47 @@ const generarExcelInspeccion = () => {
               </div>
             </div>
           </div>
+          {/* MODAL ADMIN: ASIGNAR Y ENVIAR SERVICIO A FECHA */}
+{modalServicioFecha && (
+  <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="bg-[#111] border border-yellow-500/50 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-3">
+        <h3 className="text-yellow-500 font-bold uppercase text-xs tracking-widest">
+          Asignar Servicio: {modalServicioFecha}
+        </h3>
+        <button onClick={() => setModalServicioFecha(null)} className="text-zinc-500 hover:text-white">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <p className="text-xs text-zinc-400 mb-3">
+        Escribe los detalles del servicio (ej: "Recogida Aeropuerto San Sebastián 10:30 AM - Mercedes V"):
+      </p>
+
+      <textarea
+        value={textoServicio}
+        onChange={(e) => setTextoServicio(e.target.value)}
+        placeholder="Detalles del trayecto, cliente, vehículo y horario..."
+        className="w-full bg-black border border-zinc-700 text-white p-3 rounded-lg text-xs min-h-[100px] outline-none focus:border-yellow-500 mb-4 resize-none"
+      />
+
+      <div className="flex gap-3">
+        <button 
+          onClick={() => setModalServicioFecha(null)} 
+          className="flex-1 bg-zinc-800 text-zinc-400 py-3 rounded-lg font-bold text-xs uppercase hover:text-white"
+        >
+          Cancelar
+        </button>
+        <button 
+          onClick={enviarServicioAdmin} 
+          className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-lg font-bold text-xs uppercase tracking-widest"
+        >
+          Enviar al Chofer
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
 {/* PANEL DERECHO: TABS (MAPA / HISTORIAL / CUADRANTE) */}
           <div className="w-2/3 flex flex-col bg-zinc-900">
@@ -952,10 +1010,23 @@ const generarExcelInspeccion = () => {
                                    colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20'; // Amarillo
                                }
 
-                               return (
-                                  <button key={dia} onClick={() => toggleDiaAdmin(dia)} className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}>
-                                     {dia}
-                                  </button>
+       return (
+   <button 
+      key={dia} 
+      onClick={() => {
+         // Click normal: cambia estado laboral/libre/vacaciones
+         toggleDiaAdmin(dia);
+      }}
+      onContextMenu={(e) => {
+         // Click derecho (o mantenido): abre el creador de servicios para esa fecha
+         e.preventDefault();
+         setModalServicioFecha(fechaStr);
+      }}
+      className={`aspect-square flex items-center justify-center rounded text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg ${colorClases}`}
+   >
+      {dia}
+   </button>
+
                                )
                             })}
                          </div>
@@ -1196,15 +1267,28 @@ useEffect(() => {
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    const canalChat = supabase.channel('chat_chofer').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
-        setMensajesDirectos((prev) => [...prev, payload.new]);
-        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      }).subscribe();
-    const canalJornadas = supabase.channel('jornadas_chofer').on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${session.user.id}` }, () => { cargarPerfil(); }).subscribe();
-    return () => { supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
-  }, [session?.user?.id]);
+useEffect(() => {
+  if (!session?.user?.id) return;
+
+  const canalChat = supabase.channel('chat_chofer')
+    .on('postgres_changes', { 
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'chat_directo', 
+      filter: `chofer_id=eq.${session.user.id}` 
+    }, (payload) => {
+      setMensajesDirectos((prev) => [...prev, payload.new]);
+
+      // SI EL ADMIN ENVÍA UN SERVICIO, REPRODUCIR SONIDO
+      if (payload.new.remitente === 'admin' && payload.new.fecha_servicio) {
+        audioMensajeRef.current?.play().catch(() => {});
+      }
+
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }).subscribe();
+
+  return () => { supabase.removeChannel(canalChat); };
+}, [session?.user?.id]);
 // NUEVO EFECTO: Cargar y escuchar cambios en el cuadrante en tiempo real
   useEffect(() => {
     if (!session?.user?.id) return;
