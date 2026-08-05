@@ -63,6 +63,49 @@ const mostrarNotificacionTalur = (titulo: string, cuerpo: string) => {
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const registrarCanalYNotificaciones = async () => {
+    try {
+      // Crear el canal de alta prioridad para Android ANTES de pedir permisos
+      if (Capacitor.getPlatform() === 'android') {
+        await PushNotifications.createChannel({
+          id: 'default', // Debe coincidir con el de Edge Functions
+          name: 'Alertas de Base',
+          description: 'Notificaciones críticas de operaciones',
+          importance: 5, // Importancia máxima (fuerza sonido)
+          visibility: 1, // Visible en pantalla de bloqueo
+          sound: 'default',
+          vibration: true
+        });
+      }
+
+      // Pedir permisos
+      let permStatus = await PushNotifications.checkPermissions();
+      if (permStatus.receive === 'prompt') {
+        permStatus = await PushNotifications.requestPermissions();
+      }
+
+      if (permStatus.receive !== 'granted') {
+        console.warn('El chofer denegó los permisos de notificación');
+        return;
+      }
+
+      // Registrar el dispositivo en Firebase/Apple
+      await PushNotifications.register();
+    } catch (error) {
+      console.error("Error configurando Push Notifications:", error);
+    }
+  };
+
+  // ==========================================
+  // 👇 2. AÑADE ESTE USEEFFECT NUEVO 👇
+  // ==========================================
+  useEffect(() => {
+    // Solo ejecutamos las notificaciones nativas si estamos en el móvil (Android/iOS)
+    if (Capacitor.isNativePlatform()) {
+      registrarCanalYNotificaciones();
+    }
+  }, []);
   
   // 1. Cargar la sesión del usuario (Tu código original)
   useEffect(() => {
