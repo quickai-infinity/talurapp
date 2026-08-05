@@ -48,6 +48,16 @@ function calcularDistancia(lat1: number, lon1: number, lat2: number, lon2: numbe
 const COORDENADAS_NAVE = { lat: 43.298503, lng: -1.942888 }; 
 const RADIO_NAVE = 150; // 150 metros a la redonda para detectar llegada
 
+// Función reutilizable para lanzar notificaciones de sistema
+const mostrarNotificacionTalur = (titulo: string, cuerpo: string) => {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(`TALUR APP: ${titulo}`, {
+      body: cuerpo,
+      icon: '/favicon.ico'
+    });
+  }
+};
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -157,6 +167,12 @@ function AdminDashboard({ session }: { session: any }) {
   const [enviandoIA, setEnviandoIA] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   const obtenerVehiculosEnRuta = async () => {
     const { data } = await supabase
       .from('jornadas')
@@ -169,6 +185,8 @@ function AdminDashboard({ session }: { session: any }) {
       setVehiculosActivos(Array.from(new Set(nombres)));
     }
   };
+
+  
 
   async function fetchChoferes() {
     const { data } = await supabase.from('perfiles').select('*').eq('rol', 'chofer');
@@ -449,7 +467,14 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
         if (payload.new.latitud && payload.new.longitud) { setPosicionActual([payload.new.latitud, payload.new.longitud]); setTieneUbicacion(true); }
       }).subscribe();
     const canalChat = supabase.channel(`chat_admin_${chofer.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
-        setMensajes((prev) => [...prev, payload.new]); setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        setMensajes((prev) => [...prev, payload.new]); 
+        
+        // SI EL CHOFER RESPONDE, LANZAR NOTIFICACIÓN AL DUEÑO
+        if (payload.new.remitente === 'chofer') {
+           mostrarNotificacionTalur(`Mensaje de ${chofer.nombre_completo}`, payload.new.mensaje);
+        }
+
+        setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }).subscribe();
     const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { cargarDatos(); }).subscribe();
 
@@ -1255,6 +1280,13 @@ function DriverApp({ session }: { session: any }) {
   const [mesCuadrante, setMesCuadrante] = useState(new Date());
   const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
 
+  // Solicitar permisos de notificación (Chofer)
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   useEffect(() => { cargarPerfil(); }, []);
 
 useEffect(() => {
@@ -1333,9 +1365,10 @@ useEffect(() => {
     }, (payload) => {
       setMensajesDirectos((prev) => [...prev, payload.new]);
 
-      // SI EL ADMIN ENVÍA UN MENSAJE, REPRODUCIR SONIDO SIEMPRE
+      // SI EL ADMIN ENVÍA UN MENSAJE, REPRODUCIR SONIDO Y NOTIFICACIÓN
       if (payload.new.remitente === 'admin') {
         audioMensajeRef.current?.play().catch(() => {});
+        mostrarNotificacionTalur("Nuevo Mensaje de Base", payload.new.mensaje);
       }
 
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
