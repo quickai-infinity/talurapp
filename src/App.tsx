@@ -64,7 +64,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
-
+  // 1. Cargar la sesión del usuario (Tu código original)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -78,28 +78,42 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // 2. NUEVO: Motor de Push Notifications Nativo
+  useEffect(() => {
+    // IMPORTANTE: Solo pedimos permisos si hay una sesión activa Y estamos en el móvil
+    if (session && Capacitor.isNativePlatform()) {
+      
+      PushNotifications.requestPermissions().then(result => {
+        if (result.receive === 'granted') {
+          PushNotifications.register();
+        }
+      });
+
+      // Escuchamos el token y lo guardamos directamente en el perfil del usuario
+      PushNotifications.addListener('registration', async (token) => {
+        console.log('Token FCM generado:', token.value);
+        
+        // Guardamos el token en la base de datos
+        const { error } = await supabase
+          .from('perfiles')
+          .update({ fcm_token: token.value }) 
+          .eq('id', session.user.id);
+          
+        if (error) console.error('Error al guardar el token en BD:', error);
+      });
+
+      PushNotifications.addListener('registrationError', (error) => {
+        console.error('Error en registro push:', JSON.stringify(error));
+      });
+    }
+  }, [session]); // Depende de 'session' para ejecutarse justo después del login
+
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-yellow-500 font-mono">CARGANDO SISTEMA VIP...</div>;
   if (!session) return <LoginScreen />;
   return <RoleController session={session} />;
 }
 
-useEffect(() => {
-  // Solo ejecutamos esto si estamos corriendo en el móvil nativo (APK), no en la web
-  if (Capacitor.isNativePlatform()) {
-    PushNotifications.requestPermissions().then(result => {
-      if (result.receive === 'granted') {
-        PushNotifications.register();
-      }
-    });
 
-    // Escuchar el Token que nos da Firebase
-    PushNotifications.addListener('registration', (token) => {
-      console.log('Mi Token FCM es:', token.value);
-      // IMPORTANTE: Aquí deberías guardar 'token.value' en la tabla 'perfiles' de Supabase 
-      // para que tu webhook sepa a qué teléfono exacto dispararle la notificación.
-    });
-  }
-}, []);
 
 // ==========================================
 // PANTALLA DE LOGIN
@@ -212,6 +226,8 @@ function AdminDashboard({ session }: { session: any }) {
       Notification.requestPermission();
     }
   }, []);
+
+  
 
   const obtenerVehiculosEnRuta = async () => {
     const { data } = await supabase
