@@ -490,12 +490,23 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
-  useEffect(() => {
+useEffect(() => {
     cargarDatos();
-    const canalRadar = supabase.channel(`radar_${chofer.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
-        if (payload.new.latitud && payload.new.longitud) { setPosicionActual([payload.new.latitud, payload.new.longitud]); setTieneUbicacion(true); }
+    
+    // SOLUCIÓN: Generamos un ID único temporal para que Supabase nunca mezcle 
+    // las suscripciones al abrir y cerrar paneles rápidamente.
+    const sufijoUnico = Date.now();
+
+    const canalRadar = supabase.channel(`radar_${chofer.id}_${sufijoUnico}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
+        if (payload.new.latitud && payload.new.longitud) { 
+          setPosicionActual([payload.new.latitud, payload.new.longitud]); 
+          setTieneUbicacion(true); 
+        }
       }).subscribe();
-    const canalChat = supabase.channel(`chat_admin_${chofer.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
+
+    const canalChat = supabase.channel(`chat_admin_${chofer.id}_${sufijoUnico}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
         setMensajes((prev) => [...prev, payload.new]); 
         
         // SI EL CHOFER RESPONDE, LANZAR NOTIFICACIÓN AL DUEÑO
@@ -505,9 +516,17 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
 
         setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }).subscribe();
-    const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { cargarDatos(); }).subscribe();
 
-    return () => { supabase.removeChannel(canalRadar); supabase.removeChannel(canalChat); supabase.removeChannel(canalJornadas); };
+    const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}_${sufijoUnico}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { 
+        cargarDatos(); 
+      }).subscribe();
+
+    return () => { 
+      supabase.removeChannel(canalRadar); 
+      supabase.removeChannel(canalChat); 
+      supabase.removeChannel(canalJornadas); 
+    };
   }, [chofer.id]);
 
   useEffect(() => {
