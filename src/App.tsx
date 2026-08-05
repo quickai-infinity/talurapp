@@ -850,8 +850,13 @@ const generarExcelInspeccion = () => {
               </div>
               <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-3 scrollbar-thin scrollbar-thumb-zinc-800">
                 {mensajes.map((m) => (
-                  <div key={m.id} className={`flex ${m.remitente === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`p-2 rounded-lg text-xs max-w-[85%] ${m.remitente === 'admin' ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-800 text-zinc-200'}`}>{m.mensaje}</div>
+                  <div key={m.id} className={`flex flex-col ${m.remitente === 'admin' ? 'items-end' : 'items-start'}`}>
+                    <span className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1">
+                      {new Date(m.creado_en).toLocaleString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <div className={`p-2 rounded-lg text-xs max-w-[85%] ${m.remitente === 'admin' ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-800 text-zinc-200'}`}>
+                      {m.mensaje}
+                    </div>
                   </div>
                 ))}
                 <div ref={mensajesEndRef} />
@@ -1037,11 +1042,22 @@ const generarExcelInspeccion = () => {
                                const fechaStr = `${year}-${month}-${dayStr}`;
                                const estadoDia = diasCuadrante.find((d: any) => d.fecha === fechaStr);
                                
-                               let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10';
+                           let colorClases = 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-red-500/10';
                                if (estadoDia?.tipo === 'libre') {
                                    colorClases = 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 shadow-emerald-500/20';
                                } else if (estadoDia?.tipo === 'vacaciones') {
                                    colorClases = 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 shadow-yellow-500/20';
+                               }
+
+                               // --- NUEVA LÓGICA DE ADMIN: VERIFICAR SI ENVIÓ SERVICIO ---
+                               const mensajesDelDia = mensajes.filter((m: any) => m.fecha_servicio === fechaStr);
+                               const tieneServicio = mensajesDelDia.length > 0;
+                               const confirmado = mensajesDelDia.some((m: any) => m.mensaje === 'Servicio confirmado');
+
+                               if (tieneServicio) {
+                                  colorClases = confirmado 
+                                     ? 'bg-blue-900/50 text-blue-300 border border-blue-500' // Confirmado (Fijo)
+                                     : 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)]'; // Pendiente (Palpita)
                                }
 
                                let temporizador: any; // Declarado de forma segura para evitar errores
@@ -1612,13 +1628,18 @@ audioAlarmaRef.current?.pause();
             <ShieldCheck className="w-3 h-3 text-emerald-500" />
             <span className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">Chat Central de Operaciones</span>
          </div>
-         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
             {mensajesDirectos.length === 0 ? (
               <div className="text-center text-zinc-600 text-[9px] uppercase mt-4">Sin mensajes operativos</div>
             ) : (
               mensajesDirectos.map((m) => (
-                <div key={m.id} className={`flex ${m.remitente === 'chofer' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`p-2 rounded-lg text-xs max-w-[85%] ${m.remitente === 'chofer' ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-800 text-zinc-200'}`}>{m.mensaje}</div>
+                <div key={m.id} className={`flex flex-col ${m.remitente === 'chofer' ? 'items-end' : 'items-start'}`}>
+                  <span className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1">
+                    {new Date(m.creado_en).toLocaleString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <div className={`p-2 rounded-lg text-xs max-w-[85%] ${m.remitente === 'chofer' ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-800 text-zinc-200'}`}>
+                    {m.mensaje}
+                  </div>
                 </div>
               ))
             )}
