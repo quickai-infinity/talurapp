@@ -167,6 +167,26 @@ function AdminDashboard({ session }: { session: any }) {
   const [enviandoIA, setEnviandoIA] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const audioMensajeAdminRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // 1. Pedir permisos de Notificación Visual
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // 2. Radar Global: Escucha mensajes de TODOS los choferes para sonar y notificar
+    const canalGlobal = supabase.channel('chat_admin_global')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, (payload) => {
+         // Reproduce el sonido de nuevo mensaje
+         audioMensajeAdminRef.current?.play().catch((e) => console.log("Navegador bloqueó audio", e));
+         // Lanza el pop-up de TALUR APP
+         mostrarNotificacionTalur("Mensaje de Operaciones", payload.new.mensaje);
+      }).subscribe();
+
+    return () => { supabase.removeChannel(canalGlobal); };
+  }, []);
+
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -296,6 +316,15 @@ function AdminDashboard({ session }: { session: any }) {
     value="Auditable" 
     highlight 
   />
+  {choferSeleccionado && (
+        <ModalExpediente 
+          chofer={choferSeleccionado} 
+          onClose={() => setChoferSeleccionado(null)} 
+        />
+      )}
+      
+      {/* NUEVO: Motor de audio del Admin */}
+      <audio ref={audioMensajeAdminRef} src="/mensaje-nuevo-servicio.mp4" />
 </div>
 
         {/* REGISTRO DE NUEVOS CHOFERES */}

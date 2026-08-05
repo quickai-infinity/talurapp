@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "387657779361",
+    "project_id": "talurapp-33e5c",
+    "storage_bucket": "talurapp-33e5c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:387657779361:android:9dddaa175f1286836408e0",
+        "android_client_info": {
+          "package_name": "com.talur.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCYB3hNKQW61V1HV8u8GLUHxOrr8_CHCso"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

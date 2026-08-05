@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-firebase/messaging": "^8.3.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/push-notifications": "^8.1.2",
     "@supabase/supabase-js": "^2.108.2",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",

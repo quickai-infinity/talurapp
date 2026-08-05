@@ -1,0 +1,10 @@
+{
+	"appId": "com.talur.app",
+	"appName": "TalurApp",
+	"webDir": "dist",
+	"packageClassList": [
+		"FirebaseMessagingPlugin",
+		"GeolocationPlugin",
+		"PushNotificationsPlugin"
+	]
+}
