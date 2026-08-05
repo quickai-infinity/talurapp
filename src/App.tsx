@@ -79,34 +79,41 @@ export default function App() {
   }, []);
 
   // 2. NUEVO: Motor de Push Notifications Nativo
-  useEffect(() => {
-    // IMPORTANTE: Solo pedimos permisos si hay una sesión activa Y estamos en el móvil
+useEffect(() => {
     if (session && Capacitor.isNativePlatform()) {
       
+      // 1. LIMPIEZA VITAL: Evita duplicados que "crashean" las alertas tras el primer uso
+      PushNotifications.removeAllListeners();
+
       PushNotifications.requestPermissions().then(result => {
         if (result.receive === 'granted') {
           PushNotifications.register();
         }
       });
 
-      // Escuchamos el token y lo guardamos directamente en el perfil del usuario
-      PushNotifications.addListener('registration', async (token) => {
-        console.log('Token FCM generado:', token.value);
-        
-        // Guardamos el token en la base de datos
-        const { error } = await supabase
-          .from('perfiles')
-          .update({ fcm_token: token.value }) 
-          .eq('id', session.user.id);
-          
-        if (error) console.error('Error al guardar el token en BD:', error);
+      // Registro de Token
+     PushNotifications.addListener('registration', async (token) => {
+  const { error } = await supabase
+    .from('perfiles')
+    .update({ fcm_token: token.value })
+    .eq('id', session.user.id);
+    
+  // Añade esta línea para leer la variable y quitar el aviso:
+  if (error) console.error('Error al guardar el token FCM:', error); 
+});
+
+      // 2. NUEVO: Escuchar notificaciones CUANDO LA APP ESTÁ ABIERTA (Primer Plano)
+      PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        console.log('Notificación recibida con app abierta:', notification);
+        // Aquí el OS nativo tomará el control del sonido gracias al Paso 2
       });
 
-      PushNotifications.addListener('registrationError', (error) => {
-        console.error('Error en registro push:', JSON.stringify(error));
+      // 3. NUEVO: Acción al tocar la notificación nativa en la barra superior
+      PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+        console.log('Usuario tocó la notificación:', notification);
       });
     }
-  }, [session]); // Depende de 'session' para ejecutarse justo después del login
+  }, [session]);// Depende de 'session' para ejecutarse justo después del login
 
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-yellow-500 font-mono">CARGANDO SISTEMA VIP...</div>;
   if (!session) return <LoginScreen />;
