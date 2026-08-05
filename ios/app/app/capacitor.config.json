@@ -2,6 +2,15 @@
 	"appId": "com.talur.app",
 	"appName": "TalurApp",
 	"webDir": "dist",
+	"plugins": {
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		}
+	},
 	"packageClassList": [
 		"FirebaseMessagingPlugin",
 		"GeolocationPlugin",

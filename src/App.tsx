@@ -217,13 +217,16 @@ function AdminDashboard({ session }: { session: any }) {
     }
 
     // 2. Radar Global: Escucha mensajes de TODOS los choferes para sonar y notificar
-    const canalGlobal = supabase.channel('chat_admin_global')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, (payload) => {
-         // Reproduce el sonido de nuevo mensaje
-         audioMensajeAdminRef.current?.play().catch((e) => console.log("Navegador bloqueó audio", e));
-         // Lanza el pop-up de TALUR APP
-         mostrarNotificacionTalur("Mensaje de Operaciones", payload.new.mensaje);
-      }).subscribe();
+   const canalGlobal = supabase.channel('chat_admin_global')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, (payload) => {
+     
+     if (audioMensajeAdminRef.current) {
+       audioMensajeAdminRef.current.currentTime = 0; // Rebobina el audio al inicio
+       audioMensajeAdminRef.current.play().catch((e) => console.log("Navegador bloqueó audio", e));
+     }
+     mostrarNotificacionTalur("Mensaje de Operaciones", payload.new.mensaje);
+     
+  }).subscribe();
 
     return () => { supabase.removeChannel(canalGlobal); };
   }, []);
@@ -1405,6 +1408,7 @@ useEffect(() => {
                     // LLEGÓ A LA NAVE Y NO HA ABIERTO TURNO
                     if (alertaNave !== 'inicio') {
                        setAlertaNave('inicio');
+                       
                        audioAlarmaRef.current?.play().catch(()=>{});
                     }
                  } else {
@@ -1457,10 +1461,14 @@ useEffect(() => {
       setMensajesDirectos((prev) => [...prev, payload.new]);
 
       // SI EL ADMIN ENVÍA UN MENSAJE, REPRODUCIR SONIDO Y NOTIFICACIÓN
-      if (payload.new.remitente === 'admin') {
-        audioMensajeRef.current?.play().catch(() => {});
-        mostrarNotificacionTalur("Nuevo Mensaje de Base", payload.new.mensaje);
-      }
+   // CÓDIGO CORREGIDO:
+if (payload.new.remitente === 'admin') {
+  if (audioMensajeRef.current) {
+    audioMensajeRef.current.currentTime = 0; // Rebobina el audio al inicio
+    audioMensajeRef.current.play().catch((e) => console.log("Bloqueado por Android:", e));
+  }
+  mostrarNotificacionTalur("Nuevo Mensaje de Base", payload.new.mensaje);
+}
 
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }).subscribe();

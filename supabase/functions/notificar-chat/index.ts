@@ -74,10 +74,13 @@ serve(async (req) => {
           chat_id: record.id || "",
           remitente_id: record.remitente_id || ""
         },
+        // 👇 ZONA CORREGIDA: Configuración estricta para Android 👇
         android: {
-          priority: "high",
+          priority: "high", // Despierta el dispositivo de inmediato
           notification: {
-            sound: "default"
+            sound: "default",
+            channel_id: "default", // Evita que Android bloquee el sonido en versiones nuevas
+            tag: record.id || Date.now().toString() // ID Único: Evita que Android agrupe los mensajes en silencio
           }
         }
       }
@@ -100,7 +103,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ success: true }), { status: 200, headers: { "Content-Type": "application/json" } });
 
-  } catch (error) {
+  } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 });
