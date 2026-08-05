@@ -7,6 +7,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Geolocation } from '@capacitor/geolocation';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 
 // ==========================================
 // FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
@@ -80,6 +82,24 @@ export default function App() {
   if (!session) return <LoginScreen />;
   return <RoleController session={session} />;
 }
+
+useEffect(() => {
+  // Solo ejecutamos esto si estamos corriendo en el móvil nativo (APK), no en la web
+  if (Capacitor.isNativePlatform()) {
+    PushNotifications.requestPermissions().then(result => {
+      if (result.receive === 'granted') {
+        PushNotifications.register();
+      }
+    });
+
+    // Escuchar el Token que nos da Firebase
+    PushNotifications.addListener('registration', (token) => {
+      console.log('Mi Token FCM es:', token.value);
+      // IMPORTANTE: Aquí deberías guardar 'token.value' en la tabla 'perfiles' de Supabase 
+      // para que tu webhook sepa a qué teléfono exacto dispararle la notificación.
+    });
+  }
+}, []);
 
 // ==========================================
 // PANTALLA DE LOGIN
