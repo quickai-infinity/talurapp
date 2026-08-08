@@ -9,6 +9,8 @@ import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
+import { registerPlugin } from '@capacitor/core';
+const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
 
 // ==========================================
 // FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
@@ -68,15 +70,15 @@ export default function App() {
     try {
       // Crear el canal de alta prioridad para Android ANTES de pedir permisos
       if (Capacitor.getPlatform() === 'android') {
-        await PushNotifications.createChannel({
-          id: 'default', // Debe coincidir con el de Edge Functions
-          name: 'Alertas de Base',
-          description: 'Notificaciones críticas de operaciones',
-          importance: 5, // Importancia máxima (fuerza sonido)
-          visibility: 1, // Visible en pantalla de bloqueo
-          sound: 'default',
-          vibration: true
-        });
+       await PushNotifications.createChannel({
+  id: 'canal_emergencia', // 👈 CAMBIAMOS ESTO
+  name: 'Alertas de Operaciones VIP', // 👈 Ponle un nombre más claro
+  description: 'Avisos críticos de servicios',
+  importance: 5,
+  visibility: 1,
+  sound: 'default',
+  vibration: true
+});
       }
 
       // Pedir permisos
@@ -1427,61 +1429,80 @@ function DriverApp({ session }: { session: any }) {
   useEffect(() => { cargarPerfil(); }, []);
 
 useEffect(() => {
-    let watchId: string | null = null;
-    const iniciarRastreo = async () => {
-      const permisos = await Geolocation.checkPermissions();
-      if (permisos.location === 'granted') {
-        watchId = await Geolocation.watchPosition(
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-          async (pos, _err) => {
-            if (pos) {
-              const lat = pos.coords.latitude;
-              const lng = pos.coords.longitude;
-              
-              if (perfil?.estado_actual === 'conectado') {
-                await supabase.from('perfiles').update({ latitud: lat, longitud: lng }).eq('id', session.user.id);
-              }
+    let watcherId: string | null = null;
 
-              // --- CÁLCULO DE PROXIMIDAD A LA NAVE ---
-              const dist = calcularDistancia(lat, lng, COORDENADAS_NAVE.lat, COORDENADAS_NAVE.lng);
-              const enNave = dist <= RADIO_NAVE;
+    const iniciarRastreoInmortal = async () => {
+      // El plugin invoca automáticamente un servicio en primer plano imborrable
+      watcherId = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: "Conectado a la base. GPS activo.",
+          backgroundTitle: "Operaciones Talur",
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 10 // Actualiza cada 10 metros
+        },
+        async (location: any, error: any) => { // 👈 FIX: Se añadieron los ": any"
+          if (error) {
+            console.error("Error en GPS de fondo:", error);
+            return;
+          }
 
-              if (perfil?.estado_actual === 'desconectado') {
-                 if (enNave) {
-                    // LLEGÓ A LA NAVE Y NO HA ABIERTO TURNO
-                    if (alertaNave !== 'inicio') {
-                       setAlertaNave('inicio');
-                       
-                       audioAlarmaRef.current?.play().catch(()=>{});
-                    }
-                 } else {
-                    // ESTÁ LEJOS (EN CASA, ETC) Y NO ESTÁ TRABAJANDO
-                    setAlertaNave(null);
-                    audioAlarmaRef.current?.pause();
-                 }
-                 setHaSalidoNave(false); // Reseteamos por si acaba de cerrar turno
-                 
-              } else if (perfil?.estado_actual === 'conectado') {
-                 if (!enNave) {
-                    // SE ALEJÓ DE LA NAVE CON EL TURNO ACTIVO (EN RUTA) -> SILENCIO
-                    setHaSalidoNave(true);
-                    setAlertaNave(null);
-                    audioAlarmaRef.current?.pause();
-                 } else if (enNave && haSalidoNave) {
-                    // ESTABA EN RUTA (haSalidoNave) Y VOLVIÓ A ENTRAR A LA ZONA DE LA NAVE
-                    if (alertaNave !== 'fin') {
-                       setAlertaNave('fin');
-                       audioAlarmaRef.current?.play().catch(()=>{});
-                    }
-                 }
-              }
+          if (location) {
+            const lat = location.latitude;
+            const lng = location.longitude;
+            
+            // Actualizar a Supabase solo si el chofer está conectado
+            if (perfil?.estado_actual === 'conectado') {
+              await supabase.from('perfiles').update({ latitud: lat, longitud: lng }).eq('id', session.user.id);
+            }
+
+            // Motor de Geocerca
+            const dist = calcularDistancia(lat, lng, COORDENADAS_NAVE.lat, COORDENADAS_NAVE.lng);
+            const enNave = dist <= RADIO_NAVE;
+
+            if (perfil?.estado_actual === 'desconectado') {
+               if (enNave) {
+                  if (alertaNave !== 'inicio') {
+                     setAlertaNave('inicio');
+                     if (audioAlarmaRef.current) {
+                         audioAlarmaRef.current.currentTime = 0;
+                         audioAlarmaRef.current.play().catch(()=>{});
+                     }
+                  }
+               } else {
+                  setAlertaNave(null);
+                  audioAlarmaRef.current?.pause();
+               }
+               setHaSalidoNave(false); 
+            } else if (perfil?.estado_actual === 'conectado') {
+               if (!enNave) {
+                  setHaSalidoNave(true);
+                  setAlertaNave(null);
+                  audioAlarmaRef.current?.pause();
+               } else if (enNave && haSalidoNave) {
+                  if (alertaNave !== 'fin') {
+                     setAlertaNave('fin');
+                     if (audioAlarmaRef.current) {
+                         audioAlarmaRef.current.currentTime = 0;
+                         audioAlarmaRef.current.play().catch(()=>{});
+                     }
+                  }
+               }
             }
           }
-        );
-      }
+        }
+      );
     };
-    if (perfil) iniciarRastreo(); 
-    return () => { if (watchId !== null) Geolocation.clearWatch({ id: watchId }); };
+
+    if (perfil) {
+      iniciarRastreoInmortal();
+    }
+
+    return () => {
+      if (watcherId !== null) {
+        BackgroundGeolocation.removeWatcher({ id: watcherId });
+      } // 👈 FIX: Faltaba esta llave para cerrar el if
+    };  // 👈 FIX: Faltaba esta llave para cerrar la función return
   }, [perfil?.estado_actual, session.user.id, haSalidoNave, alertaNave]);
 
   useEffect(() => {

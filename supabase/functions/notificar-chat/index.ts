@@ -76,11 +76,11 @@ serve(async (req) => {
         },
         // 👇 ZONA CORREGIDA: Configuración estricta para Android 👇
         android: {
-          priority: "high", // Despierta el dispositivo de inmediato
+          priority: "high",
           notification: {
             sound: "default",
-            channel_id: "default", // Evita que Android bloquee el sonido en versiones nuevas
-            tag: record.id || Date.now().toString() // ID Único: Evita que Android agrupe los mensajes en silencio
+            channel_id: "canal_emergencia", // 👈 DEBE COINCIDIR EXACTAMENTE AQUÍ
+            tag: record.id || Date.now().toString()
           }
         }
       }
