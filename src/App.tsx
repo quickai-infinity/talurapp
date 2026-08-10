@@ -52,15 +52,7 @@ function calcularDistancia(lat1: number, lon1: number, lat2: number, lon2: numbe
 const COORDENADAS_NAVE = { lat: 43.298503, lng: -1.942888 }; 
 const RADIO_NAVE = 150; // 150 metros a la redonda para detectar llegada
 
-// Función reutilizable para lanzar notificaciones de sistema
-const mostrarNotificacionTalur = (titulo: string, cuerpo: string) => {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification(`TALUR APP: ${titulo}`, {
-      body: cuerpo,
-      icon: '/favicon.ico'
-    });
-  }
-};
+
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -253,7 +245,6 @@ function AdminDashboard({ session }: { session: any }) {
   const [enviandoIA, setEnviandoIA] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const audioMensajeAdminRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     // 1. Pedir permisos de Notificación Visual
@@ -262,15 +253,11 @@ function AdminDashboard({ session }: { session: any }) {
     }
 
     // 2. Radar Global: Escucha mensajes de TODOS los choferes para sonar y notificar
+   // 2. Radar Global: Escucha mensajes de TODOS los choferes (Solo datos)
    const canalGlobal = supabase.channel('chat_admin_global')
   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, (payload) => {
-     
-     if (audioMensajeAdminRef.current) {
-       audioMensajeAdminRef.current.currentTime = 0; // Rebobina el audio al inicio
-       audioMensajeAdminRef.current.play().catch((e) => console.log("Navegador bloqueó audio", e));
-     }
-     mostrarNotificacionTalur("Mensaje de Operaciones", payload.new.mensaje);
-     
+     // El sonido y la alerta visual ahora son gestionados 100% por Firebase de forma nativa
+     console.log("Nuevo mensaje recibido del chofer:", payload.new.mensaje);
   }).subscribe();
 
     return () => { supabase.removeChannel(canalGlobal); };
@@ -413,9 +400,6 @@ function AdminDashboard({ session }: { session: any }) {
           onClose={() => setChoferSeleccionado(null)} 
         />
       )}
-      
-      {/* NUEVO: Motor de audio del Admin */}
-      <audio ref={audioMensajeAdminRef} src="/mensaje-nuevo-servicio.mp4" />
 </div>
 
         {/* REGISTRO DE NUEVOS CHOFERES */}
@@ -596,16 +580,17 @@ useEffect(() => {
         }
       }).subscribe();
 
-    const canalChat = supabase.channel(`chat_admin_${chofer.id}_${sufijoUnico}`)
+   const canalChat = supabase.channel(`chat_admin_${chofer.id}_${sufijoUnico}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
+        
+        // 1. Solo actualizamos los mensajes visualmente en la pantalla
         setMensajes((prev) => [...prev, payload.new]); 
         
-        // SI EL CHOFER RESPONDE, LANZAR NOTIFICACIÓN AL DUEÑO
-        if (payload.new.remitente === 'chofer') {
-           mostrarNotificacionTalur(`Mensaje de ${chofer.nombre_completo}`, payload.new.mensaje);
-        }
+        // (Eliminamos la llamada a mostrarNotificacionTalur porque Firebase Push lo hará)
 
+        // 2. Bajamos el scroll del chat
         setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        
       }).subscribe();
 
     const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}_${sufijoUnico}`)
@@ -1379,7 +1364,6 @@ function RegistroChofer({ onAdd, adminEmail }: { onAdd: () => void, adminEmail: 
 // ==========================================
 function DriverApp({ session }: { session: any }) {
   const audioAlarmaRef = useRef<HTMLAudioElement | null>(null);
-  const audioMensajeRef = useRef<HTMLAudioElement | null>(null);
   const [alertaNave, setAlertaNave] = useState<'inicio' | 'fin' | null>(null);
   const [haSalidoNave, setHaSalidoNave] = useState(false);
   const [diaServicioActivo, setDiaServicioActivo] = useState<string | null>(null);
@@ -1522,19 +1506,12 @@ useEffect(() => {
       table: 'chat_directo', 
       filter: `chofer_id=eq.${session.user.id}` 
     }, (payload) => {
+      // 1. Actualizamos el chat en la pantalla
       setMensajesDirectos((prev) => [...prev, payload.new]);
-
-      // SI EL ADMIN ENVÍA UN MENSAJE, REPRODUCIR SONIDO Y NOTIFICACIÓN
-   // CÓDIGO CORREGIDO:
-if (payload.new.remitente === 'admin') {
-  if (audioMensajeRef.current) {
-    audioMensajeRef.current.currentTime = 0; // Rebobina el audio al inicio
-    audioMensajeRef.current.play().catch((e) => console.log("Bloqueado por Android:", e));
-  }
-  mostrarNotificacionTalur("Nuevo Mensaje de Base", payload.new.mensaje);
-}
-
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      
+      // 2. Se eliminó la inyección de audio web y notificaciones del navegador.
+      // La notificación nativa entrará directamente por Firebase.
     }).subscribe();
 
   return () => { supabase.removeChannel(canalChat); };
@@ -2049,7 +2026,6 @@ audioAlarmaRef.current?.pause();
       )}
       {/* AUDIOS NATIVOS - ARCHIVOS EXACTOS DE LA CARPETA PUBLIC */}
       <audio ref={audioAlarmaRef} src="/alarma-abre-turno.mp4" loop />
-      <audio ref={audioMensajeRef} src="/mensaje-nuevo-servicio.mp4" />
       {/* MODAL SERVICIO DEL DÍA CHOFER (AQUÍ SE USA diaServicioActivo) */}
       {diaServicioActivo && (
         <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col p-4 items-center justify-center backdrop-blur-md">
