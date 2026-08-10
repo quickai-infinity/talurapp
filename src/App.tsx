@@ -238,6 +238,7 @@ function AdminDashboard({ session }: { session: any }) {
   const [choferes, setChoferes] = useState<any[]>([]);
   const [choferSeleccionado, setChoferSeleccionado] = useState<any>(null);
   const [vehiculosActivos, setVehiculosActivos] = useState<string[]>([]);
+  const audioMensajeAdminRef = useRef<HTMLAudioElement | null>(null);
 
   // Estados para el Chat IA del Admin
   const [mensajeIA, setMensajeIA] = useState('');
@@ -252,12 +253,14 @@ function AdminDashboard({ session }: { session: any }) {
       Notification.requestPermission();
     }
 
-    // 2. Radar Global: Escucha mensajes de TODOS los choferes para sonar y notificar
+    
    // 2. Radar Global: Escucha mensajes de TODOS los choferes (Solo datos)
-   const canalGlobal = supabase.channel('chat_admin_global')
-  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, (payload) => {
-     // El sonido y la alerta visual ahora son gestionados 100% por Firebase de forma nativa
-     console.log("Nuevo mensaje recibido del chofer:", payload.new.mensaje);
+ const canalGlobal = supabase.channel('chat_admin_global')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, () => {
+     if (audioMensajeAdminRef.current) {
+        audioMensajeAdminRef.current.currentTime = 0;
+        audioMensajeAdminRef.current.play().catch(()=>{});
+     }
   }).subscribe();
 
     return () => { supabase.removeChannel(canalGlobal); };
@@ -570,17 +573,17 @@ useEffect(() => {
     
     // SOLUCIÓN: Generamos un ID único temporal para que Supabase nunca mezcle 
     // las suscripciones al abrir y cerrar paneles rápidamente.
-    const sufijoUnico = Date.now();
+    // FIX: Genera un ID realmente único para evitar el crash del PC
+    const sufijoUnico = Math.random().toString(36).substring(7);
 
-    const canalRadar = supabase.channel(`radar_${chofer.id}_${sufijoUnico}`)
+    // UNIFICAMOS LOS 3 CANALES EN UNO SOLO PARA QUE EL PC NO EXPLOTE
+    const canalUnificado = supabase.channel(`modal_${chofer.id}_${sufijoUnico}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${chofer.id}` }, (payload) => {
         if (payload.new.latitud && payload.new.longitud) { 
           setPosicionActual([payload.new.latitud, payload.new.longitud]); 
           setTieneUbicacion(true); 
         }
-      }).subscribe();
-
-   const canalChat = supabase.channel(`chat_admin_${chofer.id}_${sufijoUnico}`)
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
         
         // 1. Solo actualizamos los mensajes visualmente en la pantalla
@@ -591,17 +594,15 @@ useEffect(() => {
         // 2. Bajamos el scroll del chat
         setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         
-      }).subscribe();
-
-    const canalJornadas = supabase.channel(`jornadas_admin_${chofer.id}_${sufijoUnico}`)
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { 
         cargarDatos(); 
-      }).subscribe();
+      })
+      .subscribe();
 
     return () => { 
-      supabase.removeChannel(canalRadar); 
-      supabase.removeChannel(canalChat); 
-      supabase.removeChannel(canalJornadas); 
+      // Al salir, solo matamos el canal unificado
+      supabase.removeChannel(canalUnificado); 
     };
   }, [chofer.id]);
 
@@ -1364,8 +1365,8 @@ function RegistroChofer({ onAdd, adminEmail }: { onAdd: () => void, adminEmail: 
 // ==========================================
 function DriverApp({ session }: { session: any }) {
   const audioAlarmaRef = useRef<HTMLAudioElement | null>(null);
+  const audioMensajeRef = useRef<HTMLAudioElement | null>(null);
   const [alertaNave, setAlertaNave] = useState<'inicio' | 'fin' | null>(null);
-  const [haSalidoNave, setHaSalidoNave] = useState(false);
   const [diaServicioActivo, setDiaServicioActivo] = useState<string | null>(null);
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1373,14 +1374,14 @@ function DriverApp({ session }: { session: any }) {
   const [minutosActivos, setMinutosActivos] = useState(0);
   const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null);
   const [vehiculoEnUso, setVehiculoEnUso] = useState<string | null>(null);
-  
+
   // NUEVOS ESTADOS PARA LOS MODALES DE FICHADO
   const [modalEntrada, setModalEntrada] = useState(false);
   const [modalSalida, setModalSalida] = useState(false);
   const [cocheSeleccionado, setCocheSeleccionado] = useState("Mercedes Benz Sprinter 1");
   const [gastoDinero, setGastoDinero] = useState('');
   const [gastoLitros, setGastoLitros] = useState('');
-  const [kilometraje, setKilometraje] = useState(''); // <-- NUEVO ESTADO
+  const [kilometraje, setKilometraje] = useState('');
   const [turnoSeleccionado, setTurnoSeleccionado] = useState('1er Turno');
   const [incidencias, setIncidencias] = useState('');
   const flotaTalur = [
@@ -1403,7 +1404,6 @@ function DriverApp({ session }: { session: any }) {
   const [mesCuadrante, setMesCuadrante] = useState(new Date());
   const [diasCuadrante, setDiasCuadrante] = useState<any[]>([]);
 
-  // Solicitar permisos de notificación (Chofer)
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -1412,134 +1412,96 @@ function DriverApp({ session }: { session: any }) {
 
   useEffect(() => { cargarPerfil(); }, []);
 
-useEffect(() => {
+  useEffect(() => {
     let watcherId: string | null = null;
-
     const iniciarRastreoInmortal = async () => {
-      // El plugin invoca automáticamente un servicio en primer plano imborrable
+      if (!Capacitor.isNativePlatform()) return;
       watcherId = await BackgroundGeolocation.addWatcher(
         {
           backgroundMessage: "Conectado a la base. GPS activo.",
           backgroundTitle: "Operaciones Talur",
           requestPermissions: true,
           stale: false,
-          distanceFilter: 10 // Actualiza cada 10 metros
+          distanceFilter: 10
         },
-        async (location: any, error: any) => { // 👈 FIX: Se añadieron los ": any"
-          if (error) {
-            console.error("Error en GPS de fondo:", error);
-            return;
-          }
-
-          if (location) {
+        async (location: any, error: any) => {
+          if (error) return;
+          if (location && session?.user?.id) {
             const lat = location.latitude;
             const lng = location.longitude;
-            
-            // Actualizar a Supabase solo si el chofer está conectado
-            if (perfil?.estado_actual === 'conectado') {
-              await supabase.from('perfiles').update({ latitud: lat, longitud: lng }).eq('id', session.user.id);
-            }
-
-            // Motor de Geocerca
+            await supabase.from('perfiles').update({ latitud: lat, longitud: lng }).eq('id', session.user.id);
             const dist = calcularDistancia(lat, lng, COORDENADAS_NAVE.lat, COORDENADAS_NAVE.lng);
-            const enNave = dist <= RADIO_NAVE;
-
-            if (perfil?.estado_actual === 'desconectado') {
-               if (enNave) {
-                  if (alertaNave !== 'inicio') {
-                     setAlertaNave('inicio');
-                     if (audioAlarmaRef.current) {
-                         audioAlarmaRef.current.currentTime = 0;
-                         audioAlarmaRef.current.play().catch(()=>{});
-                     }
-                  }
-               } else {
-                  setAlertaNave(null);
-                  audioAlarmaRef.current?.pause();
-               }
-               setHaSalidoNave(false); 
-            } else if (perfil?.estado_actual === 'conectado') {
-               if (!enNave) {
-                  setHaSalidoNave(true);
-                  setAlertaNave(null);
-                  audioAlarmaRef.current?.pause();
-               } else if (enNave && haSalidoNave) {
-                  if (alertaNave !== 'fin') {
-                     setAlertaNave('fin');
-                     if (audioAlarmaRef.current) {
-                         audioAlarmaRef.current.currentTime = 0;
-                         audioAlarmaRef.current.play().catch(()=>{});
-                     }
-                  }
+            if (dist <= RADIO_NAVE) {
+               if (Capacitor.isNativePlatform()) {
+                 // Requiere importar LocalNotifications arriba si no lo tienes
+                 // import { LocalNotifications } from '@capacitor/local-notifications';
+                 /*LocalNotifications.schedule({
+                   notifications: [{
+                     title: "¡ATENCIÓN NAVE!",
+                     body: "Estás en Talur Luxury Cars. Recuerda gestionar tu turno.",
+                     id: 888,
+                     schedule: { at: new Date(Date.now() + 100) },
+                     channelId: 'canal_emergencia',
+                     sound: 'default'
+                   }]
+                 });*/
                }
             }
           }
         }
       );
     };
-
-    if (perfil) {
-      iniciarRastreoInmortal();
-    }
-
+    iniciarRastreoInmortal();
     return () => {
-      if (watcherId !== null) {
+      if (watcherId !== null && Capacitor.isNativePlatform()) {
         BackgroundGeolocation.removeWatcher({ id: watcherId });
-      } // 👈 FIX: Faltaba esta llave para cerrar el if
-    };  // 👈 FIX: Faltaba esta llave para cerrar la función return
-  }, [perfil?.estado_actual, session.user.id, haSalidoNave, alertaNave]);
+      }
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let intervalo: any;
-    if (perfil?.estado_actual === 'conectado') { intervalo = setInterval(() => setMinutosActivos(m => m + 1), 60000); } 
-    else { setMinutosActivos(0); }
+    if (perfil?.estado_actual === 'conectado') {
+      intervalo = setInterval(() => setMinutosActivos(m => m + 1), 60000);
+    } else {
+      setMinutosActivos(0);
+    }
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
-useEffect(() => {
-  if (!session?.user?.id) return;
-
-  const canalChat = supabase.channel('chat_chofer')
-    .on('postgres_changes', { 
-      event: 'INSERT', 
-      schema: 'public', 
-      table: 'chat_directo', 
-      filter: `chofer_id=eq.${session.user.id}` 
-    }, (payload) => {
-      // 1. Actualizamos el chat en la pantalla
-      setMensajesDirectos((prev) => [...prev, payload.new]);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      
-      // 2. Se eliminó la inyección de audio web y notificaciones del navegador.
-      // La notificación nativa entrará directamente por Firebase.
-    }).subscribe();
-
-  return () => { supabase.removeChannel(canalChat); };
-}, [session?.user?.id]);
-// NUEVO EFECTO: Cargar y escuchar cambios en el cuadrante en tiempo real
   useEffect(() => {
     if (!session?.user?.id) return;
+    const canalChat = supabase.channel('chat_chofer')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
+        setMensajesDirectos((prev) => [...prev, payload.new]);
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        if (payload.new.remitente === 'admin') {
+           if (audioMensajeRef.current) {
+              audioMensajeRef.current.currentTime = 0;
+              audioMensajeRef.current.play().catch(()=>{});
+           }
+        }
+      }).subscribe();
+    return () => { supabase.removeChannel(canalChat); };
+  }, [session?.user?.id]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
     const cargarCuadrante = async () => {
       const { data } = await supabase.from('cuadrante_turnos').select('*').eq('chofer_id', session.user.id);
       if (data) setDiasCuadrante(data);
     };
-
-    cargarCuadrante(); // Carga inicial
-
-    // El radar en vivo: Si el admin cambia un día, se actualiza solo
+    cargarCuadrante();
     const canalCuadrante = supabase.channel('cuadrante_chofer_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cuadrante_turnos', filter: `chofer_id=eq.${session.user.id}` }, () => {
         cargarCuadrante();
       }).subscribe();
-
     return () => { supabase.removeChannel(canalCuadrante); };
   }, [session?.user?.id, mesCuadrante]);
 
   async function cargarPerfil() {
     const { data: pData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single();
     setPerfil(pData);
-
     const { data: jActiva } = await supabase.from('jornadas').select('*').eq('chofer_id', session.user.id).is('hora_fin', null).single();
     if (jActiva) {
       setJornadaActivaId(jActiva.id);
@@ -1550,10 +1512,8 @@ useEffect(() => {
       setJornadaActivaId(null);
       setVehiculoEnUso(null);
     }
-
     const { data: historial } = await supabase.from('jornadas').select('*').eq('chofer_id', session.user.id).order('hora_inicio', { ascending: false });
     if (historial) setHistorialJornadas(historial);
-
     const { data: cData } = await supabase.from('chat_directo').select('*').eq('chofer_id', session.user.id).order('creado_en', { ascending: true });
     if (cData) { setMensajesDirectos(cData); setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
     setLoading(false);
@@ -2024,8 +1984,10 @@ audioAlarmaRef.current?.pause();
           </div>
         </div>
       )}
-      {/* AUDIOS NATIVOS - ARCHIVOS EXACTOS DE LA CARPETA PUBLIC */}
+   {/* AUDIOS NATIVOS - ARCHIVOS EXACTOS DE LA CARPETA PUBLIC */}
       <audio ref={audioAlarmaRef} src="/alarma-abre-turno.mp4" loop />
+      <audio ref={audioMensajeRef} src="/mensaje-nuevo-servicio.mp4" /> {/* 👈 AÑADE ESTA LÍNEA AQUÍ */}
+      
       {/* MODAL SERVICIO DEL DÍA CHOFER (AQUÍ SE USA diaServicioActivo) */}
       {diaServicioActivo && (
         <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col p-4 items-center justify-center backdrop-blur-md">
