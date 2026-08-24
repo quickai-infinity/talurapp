@@ -512,6 +512,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [modoVacaciones, setModoVacaciones] = useState(false);
   const [modalServicioFecha, setModalServicioFecha] = useState<string | null>(null);
   const [textoServicio, setTextoServicio] = useState('');
+  const [jornadaEditando, setJornadaEditando] = useState<any>(null);
 
   const enviarServicioAdmin = async () => {
     if (!textoServicio.trim() || !modalServicioFecha) return;
@@ -999,7 +1000,7 @@ const generarExcelInspeccion = () => {
                 <h3 className="text-white text-xs font-bold uppercase tracking-wider">Chat Operaciones</h3>
               </div>
               <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-3 scrollbar-thin scrollbar-thumb-zinc-800">
-                {mensajes.map((m) => (
+                {mensajes.filter(m => !m.fecha_servicio).map((m) => (
                   <div key={m.id} className={`flex flex-col ${m.remitente === 'admin' ? 'items-end' : 'items-start'}`}>
                     <span className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1">
                       {new Date(m.creado_en).toLocaleString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -1097,7 +1098,7 @@ const generarExcelInspeccion = () => {
                         <tbody className="divide-y divide-zinc-800">
                            {historialJornadas.map(j => {
                               return (
-                                <tr key={j.id} className="hover:bg-zinc-800/50">
+                                <tr key={j.id} className="hover:bg-zinc-800/50 cursor-pointer transition-colors" onClick={() => setJornadaEditando(j)} title="Clic para corregir este turno">
                                    <td className="py-3 px-4">
                                       <p className="font-bold text-white">{new Date(j.hora_inicio).toLocaleDateString()}</p>
                                       <p className="font-mono text-xs text-zinc-500">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}</p>
@@ -1249,6 +1250,63 @@ const generarExcelInspeccion = () => {
              </div>
           </div>
         </div>
+
+        {/* ========================================== */}
+        {/* MODAL DE EDICIÓN DE TURNO (SOLO ADMIN) */}
+        {/* ========================================== */}
+        {jornadaEditando && (
+          <div className="fixed inset-0 bg-black/90 z-[90] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-[#111] border border-yellow-500/50 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <h3 className="text-yellow-500 font-bold uppercase text-xs tracking-widest mb-4 flex justify-between items-center">
+                Corrección de Turno
+                <button onClick={() => setJornadaEditando(null)} className="text-zinc-500 hover:text-white">
+                   <X className="w-5 h-5" />
+                </button>
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase">Hora de Entrada</label>
+                  <input type="datetime-local" 
+                    defaultValue={new Date(new Date(jornadaEditando.hora_inicio).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} 
+                    onChange={(e) => setJornadaEditando({...jornadaEditando, hora_inicio: new Date(e.target.value).toISOString()})}
+                    className="w-full bg-black border border-zinc-700 text-white p-3 rounded mt-1 text-sm outline-none focus:border-yellow-500" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase">Hora de Salida (Cierre)</label>
+                  <input type="datetime-local" 
+                    defaultValue={jornadaEditando.hora_fin ? new Date(new Date(jornadaEditando.hora_fin).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} 
+                    onChange={(e) => setJornadaEditando({...jornadaEditando, hora_fin: e.target.value ? new Date(e.target.value).toISOString() : null})}
+                    className="w-full bg-black border border-zinc-700 text-white p-3 rounded mt-1 text-sm outline-none focus:border-yellow-500" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase">Vehículo Asignado</label>
+                  <input type="text" 
+                    value={jornadaEditando.vehiculo || ''} 
+                    onChange={(e) => setJornadaEditando({...jornadaEditando, vehiculo: e.target.value})} 
+                    className="w-full bg-black border border-zinc-700 text-white p-3 rounded mt-1 text-sm outline-none focus:border-yellow-500" />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6 border-t border-zinc-800 pt-4">
+                <button onClick={() => setJornadaEditando(null)} className="flex-1 bg-zinc-800 text-zinc-400 py-3 rounded-lg font-bold text-xs uppercase hover:text-white transition-colors">Cancelar</button>
+                <button onClick={async () => {
+                  await supabase.from('jornadas').update({
+                    hora_inicio: jornadaEditando.hora_inicio,
+                    hora_fin: jornadaEditando.hora_fin,
+                    vehiculo: jornadaEditando.vehiculo,
+                    estado: jornadaEditando.hora_fin ? 'finalizada' : 'activa'
+                  }).eq('id', jornadaEditando.id);
+                  
+                  setJornadaEditando(null);
+                  cargarDatos(); 
+                }} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-lg font-bold text-xs uppercase tracking-widest transition-all">Guardar</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ========================================== */}
+
       </div>
     </div>
   );
@@ -1762,10 +1820,10 @@ audioAlarmaRef.current?.pause();
             <span className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">Chat Central de Operaciones</span>
          </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-            {mensajesDirectos.length === 0 ? (
+            {mensajesDirectos.filter(m => !m.fecha_servicio).length === 0 ? (
               <div className="text-center text-zinc-600 text-[9px] uppercase mt-4">Sin mensajes operativos</div>
             ) : (
-              mensajesDirectos.map((m) => (
+              mensajesDirectos.filter(m => !m.fecha_servicio).map((m) => (
                 <div key={m.id} className={`flex flex-col ${m.remitente === 'chofer' ? 'items-end' : 'items-start'}`}>
                   <span className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1">
                     {new Date(m.creado_en).toLocaleString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
