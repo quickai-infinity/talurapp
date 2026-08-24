@@ -1304,7 +1304,8 @@ const generarExcelInspeccion = () => {
 
               <div className="flex gap-3 mt-6 border-t border-zinc-800 pt-4">
                 <button onClick={() => setJornadaEditando(null)} className="flex-1 bg-zinc-800 text-zinc-400 py-3 rounded-lg font-bold text-xs uppercase hover:text-white transition-colors">Cancelar</button>
-               <button onClick={async () => {
+              <button onClick={async () => {
+                  // 1. Modifica el turno
                   await supabase.from('jornadas').update({
                     hora_inicio: jornadaEditando.hora_inicio,
                     hora_fin: jornadaEditando.hora_fin,
@@ -1312,14 +1313,21 @@ const generarExcelInspeccion = () => {
                     estado: jornadaEditando.hora_fin ? 'finalizada' : 'activa'
                   }).eq('id', jornadaEditando.id);
                   
-                  // AUTO-CÁLCULO AUTOMÁTICO DEL TOTAL HISTÓRICO
+                  // 2. SUMA TODO Y MACHACA LA COLUMNA HORAS_ACUMULADAS
                   const { data: updatedJornadas } = await supabase.from('jornadas').select('*').eq('chofer_id', chofer.id);
                   if (updatedJornadas) {
                      let totalMs = 0;
-                     updatedJornadas.forEach(j => { if (j.hora_fin) { totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime(); } });
-                     const totalCalculado = totalMs / (1000 * 60 * 60);
+                     updatedJornadas.forEach(j => { 
+                         if (j.hora_fin && j.hora_inicio) { 
+                             totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime(); 
+                         } 
+                     });
+                     
+                     // EL SECRETO: Cortamos a 4 decimales para que Supabase lo acepte sí o sí
+                     const totalCalculado = parseFloat((totalMs / (1000 * 60 * 60)).toFixed(4));
+                     
                      await supabase.from('perfiles').update({ horas_acumuladas: totalCalculado }).eq('id', chofer.id);
-                     setHoras(totalCalculado); // Refleja el cambio al instante en pantalla
+                     setHoras(totalCalculado); 
                   }
                   
                   setJornadaEditando(null);
@@ -1593,7 +1601,7 @@ function DriverApp({ session }: { session: any }) {
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
- useEffect(() => {
+useEffect(() => {
     if (!session?.user?.id) return;
     const canalChat = supabase.channel('chat_chofer')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
@@ -1609,7 +1617,14 @@ function DriverApp({ session }: { session: any }) {
          if (audioMensajeRef.current) { audioMensajeRef.current.currentTime = 0; audioMensajeRef.current.play().catch(()=>{}); }
       }
     })
+    // 👇 ESTA ES LA LÍNEA NUEVA: Escucha cuando el dueño le modifica sus horas acumuladas
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${session.user.id}` }, (payload) => {
+      if (payload.new.horas_acumuladas !== undefined) {
+         setPerfil((prev: any) => ({ ...prev, horas_acumuladas: payload.new.horas_acumuladas }));
+      }
+    })
     .subscribe();
+    
     return () => { supabase.removeChannel(canalChat); };
   }, [session?.user?.id]);
 
