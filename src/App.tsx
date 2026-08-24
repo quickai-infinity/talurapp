@@ -1593,7 +1593,7 @@ function DriverApp({ session }: { session: any }) {
     return () => clearInterval(intervalo);
   }, [perfil?.estado_actual]);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!session?.user?.id) return;
     const canalChat = supabase.channel('chat_chofer')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
@@ -2123,7 +2123,7 @@ audioAlarmaRef.current?.pause();
       <audio ref={audioAlarmaRef} src="/alarma-abre-turno.mp4" loop />
       <audio ref={audioMensajeRef} src="/mensaje-nuevo-servicio.mp4" /> {/* 👈 AÑADE ESTA LÍNEA AQUÍ */}
       
-      {/* MODAL SERVICIO DEL DÍA CHOFER (AQUÍ SE USA diaServicioActivo) */}
+  {/* MODAL SERVICIO DEL DÍA CHOFER (AQUÍ SE USA diaServicioActivo) */}
       {diaServicioActivo && (
         <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col p-4 items-center justify-center backdrop-blur-md">
           <div className="bg-[#111] border border-blue-900/50 rounded-2xl w-full h-[80vh] flex flex-col shadow-[0_0_30px_rgba(59,130,246,0.2)]">
@@ -2132,12 +2132,12 @@ audioAlarmaRef.current?.pause();
                <h3 className="text-blue-400 font-bold uppercase tracking-widest text-xs">
                   Instrucciones: {diaServicioActivo}
                </h3>
-               {/* AQUÍ SE USA setDiaServicioActivo PARA CERRAR EL MODAL */}
                <button onClick={() => setDiaServicioActivo(null)} className="text-zinc-500"><X className="w-6 h-6"/></button>
             </div>
 
             <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
-               {mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).map((m) => (
+               {/* AHORA LEE DE LA NUEVA TABLA DE SERVICIOS */}
+               {serviciosAsignados.filter((m: any) => m.fecha_servicio === diaServicioActivo).map((m: any) => (
                   <div key={m.id} className={`flex ${m.remitente === 'chofer' ? 'justify-end' : 'justify-start'}`}>
                      <div className={`p-3 rounded-lg text-xs max-w-[85%] whitespace-pre-wrap break-words ${m.remitente === 'chofer' ? (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white') : 'bg-blue-600 text-white font-bold shadow-lg'}`}>
                         {m.mensaje}
@@ -2147,7 +2147,8 @@ audioAlarmaRef.current?.pause();
             </div>
 
             <div className="p-4 bg-[#0a0a0a] border-t border-zinc-800 flex flex-col gap-3 rounded-b-2xl">
-               {!mensajesDirectos.filter(m => m.fecha_servicio === diaServicioActivo).some(m => m.mensaje === 'Servicio confirmado') && (
+               {/* AHORA VERIFICA EN LA NUEVA TABLA SI YA SE CONFIRMÓ */}
+               {!serviciosAsignados.filter((m: any) => m.fecha_servicio === diaServicioActivo).some((m: any) => m.mensaje === 'Servicio confirmado') && (
                   <button 
                      onClick={confirmarServicioActivo} 
                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black text-sm shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all uppercase tracking-widest active:scale-95"
@@ -2161,7 +2162,8 @@ audioAlarmaRef.current?.pause();
                      if (e.key === 'Enter') {
                          const msg = (e.target as HTMLInputElement).value;
                          if (msg.trim()) {
-                             supabase.from('chat_directo').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
+                             // AHORA EL CHAT ENVÍA A LA NUEVA TABLA
+                             supabase.from('servicios_asignados').insert({ chofer_id: session.user.id, remitente: 'chofer', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
                                  (document.getElementById('inputChatDiaChofer') as HTMLInputElement).value = '';
                              });
                          }
