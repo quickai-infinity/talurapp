@@ -518,7 +518,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const enviarServicioAdmin = async () => {
     if (!textoServicio.trim() || !modalServicioFecha) return;
 
-    await supabase.from('chat_directo').insert({
+    await supabase.from('servicios_asignados').insert({
       chofer_id: chofer.id,
       remitente: 'admin',
       mensaje: textoServicio,
@@ -535,6 +535,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [turnoEnVivo, setTurnoEnVivo] = useState<string | null>(null); // <-- NUEVO ESTADO PARA EL TURNO
 
   const [mensajes, setMensajes] = useState<any[]>([]);
+  const [serviciosAsignados, setServiciosAsignados] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const mensajesEndRef = useRef<HTMLDivElement>(null);
 
@@ -587,17 +588,13 @@ useEffect(() => {
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
-        
-        // 1. Solo actualizamos los mensajes visualmente en la pantalla
         setMensajes((prev) => [...prev, payload.new]); 
-        
-        // (Eliminamos la llamada a mostrarNotificacionTalur porque Firebase Push lo hará)
-
-        // 2. Bajamos el scroll del chat
         setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => { 
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'servicios_asignados', filter: `chofer_id=eq.${chofer.id}` }, (payload) => {
+        setServiciosAsignados((prev) => [...prev, payload.new]); 
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas', filter: `chofer_id=eq.${chofer.id}` }, () => {
         cargarDatos(); 
       })
       .subscribe();
@@ -633,6 +630,9 @@ useEffect(() => {
     const { data: chatData } = await supabase.from('chat_directo').select('*').eq('chofer_id', chofer.id).order('creado_en', { ascending: true });
     if (chatData) { setMensajes(chatData); setTimeout(() => mensajesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
     
+    const { data: servData } = await supabase.from('servicios_asignados').select('*').eq('chofer_id', chofer.id).order('creado_en', { ascending: true });
+    if (servData) setServiciosAsignados(servData);
+
     const { data: jornadasData } = await supabase.from('jornadas').select('*').eq('chofer_id', chofer.id).order('hora_inicio', { ascending: false });
     if (jornadasData) {
        setHistorialJornadas(jornadasData);
@@ -1202,15 +1202,18 @@ const generarExcelInspeccion = () => {
                                }
 
                                // --- NUEVA LÓGICA DE ADMIN: VERIFICAR SI ENVIÓ SERVICIO ---
-                               const mensajesDelDia = mensajes.filter((m: any) => m.fecha_servicio === fechaStr);
-                               const tieneServicio = mensajesDelDia.length > 0;
-                               const confirmado = mensajesDelDia.some((m: any) => m.mensaje === 'Servicio confirmado');
+                              const mensajesDelDia = serviciosAsignados.filter((m: any) => m.fecha_servicio === fechaStr);
+                       const tieneServicio = mensajesDelDia.length > 0;
 
-                               if (tieneServicio) {
-                                  colorClases = confirmado 
-                                     ? 'bg-blue-900/50 text-blue-300 border border-blue-500' // Confirmado (Fijo)
-                                     : 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)]'; // Pendiente (Palpita)
-                               }
+                       if (tieneServicio) {
+                          // Miramos quién mandó el ÚLTIMO mensaje
+                          const ultimoMensaje = mensajesDelDia[mensajesDelDia.length - 1];
+                          const requiereAtencion = ultimoMensaje.remitente === 'admin';
+
+                          colorClases = requiereAtencion 
+                             ? 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)] cursor-pointer hover:scale-105' // Palpita (tiene mensajes nuevos del Admin)
+                             : 'bg-blue-900/50 text-blue-300 border border-blue-500 cursor-pointer'; // Fijo (ya lo respondí)
+                       }
 
                                let temporizador: any; // Declarado de forma segura para evitar errores
 
@@ -1349,7 +1352,7 @@ const generarExcelInspeccion = () => {
                        if (e.key === 'Enter') {
                            const msg = (e.target as HTMLInputElement).value;
                            if (msg.trim()) {
-                               supabase.from('chat_directo').insert({ chofer_id: chofer.id, remitente: 'admin', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
+                               supabase.from('servicios_asignados').insert({ chofer_id: chofer.id, remitente: 'admin', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
                                    (document.getElementById('inputChatDiaAdmin') as HTMLInputElement).value = '';
                                });
                            }
@@ -1511,6 +1514,7 @@ function DriverApp({ session }: { session: any }) {
   const [historialIA, setHistorialIA] = useState<{rol: string, texto: string}[]>([{rol: 'ia', texto: 'Sistema Central Talur. ¿En qué puedo asistirte en tu ruta?'}]);
   const [enviandoIA, setEnviandoIA] = useState(false);
   const [mensajesDirectos, setMensajesDirectos] = useState<any[]>([]);
+  const [serviciosAsignados, setServiciosAsignados] = useState<any[]>([]);
   const [nuevoMensajeDirecto, setNuevoMensajeDirecto] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [cuadranteAbierto, setCuadranteAbierto] = useState(false);
@@ -1585,16 +1589,20 @@ function DriverApp({ session }: { session: any }) {
   useEffect(() => {
     if (!session?.user?.id) return;
     const canalChat = supabase.channel('chat_chofer')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
-        setMensajesDirectos((prev) => [...prev, payload.new]);
-        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        if (payload.new.remitente === 'admin') {
-           if (audioMensajeRef.current) {
-              audioMensajeRef.current.currentTime = 0;
-              audioMensajeRef.current.play().catch(()=>{});
-           }
-        }
-      }).subscribe();
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
+      setMensajesDirectos((prev) => [...prev, payload.new]);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      if (payload.new.remitente === 'admin') {
+         if (audioMensajeRef.current) { audioMensajeRef.current.currentTime = 0; audioMensajeRef.current.play().catch(()=>{}); }
+      }
+    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'servicios_asignados', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
+      setServiciosAsignados((prev) => [...prev, payload.new]);
+      if (payload.new.remitente === 'admin') {
+         if (audioMensajeRef.current) { audioMensajeRef.current.currentTime = 0; audioMensajeRef.current.play().catch(()=>{}); }
+      }
+    })
+    .subscribe();
     return () => { supabase.removeChannel(canalChat); };
   }, [session?.user?.id]);
 
@@ -1629,12 +1637,16 @@ function DriverApp({ session }: { session: any }) {
     if (historial) setHistorialJornadas(historial);
     const { data: cData } = await supabase.from('chat_directo').select('*').eq('chofer_id', session.user.id).order('creado_en', { ascending: true });
     if (cData) { setMensajesDirectos(cData); setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
+    
+    const { data: sData } = await supabase.from('servicios_asignados').select('*').eq('chofer_id', session.user.id).order('creado_en', { ascending: true });
+    if (sData) setServiciosAsignados(sData);
+
     setLoading(false);
   }
 
   const confirmarServicioActivo = async () => {
     if (!diaServicioActivo) return;
-    const { error } = await supabase.from('chat_directo').insert({ 
+    const { error } = await supabase.from('servicios_asignados').insert({
       chofer_id: session.user.id, 
       remitente: 'chofer', 
       mensaje: 'Servicio confirmado', 
@@ -2025,14 +2037,17 @@ audioAlarmaRef.current?.pause();
                        }
 
                        // --- NUEVA LÓGICA: DETECTAR SI HAY SERVICIO ASIGNADO ESE DÍA ---
-                       const mensajesDelDia = mensajesDirectos.filter(m => m.fecha_servicio === fechaStr);
+                      const mensajesDelDia = serviciosAsignados.filter((m: any) => m.fecha_servicio === fechaStr);
                        const tieneServicio = mensajesDelDia.length > 0;
-                       const confirmado = mensajesDelDia.some(m => m.mensaje === 'Servicio confirmado');
 
                        if (tieneServicio) {
-                          colorClases = confirmado 
-                             ? 'bg-blue-900/50 text-blue-300 border border-blue-500' // Confirmado
-                             : 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)] cursor-pointer hover:scale-105'; // Nuevo/Pendiente
+                          // Miramos quién mandó el ÚLTIMO mensaje
+                          const ultimoMensaje = mensajesDelDia[mensajesDelDia.length - 1];
+                          const requiereAtencion = ultimoMensaje.remitente === 'admin';
+
+                          colorClases = requiereAtencion 
+                             ? 'bg-blue-500 text-white border border-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.6)]' // Palpita (esperando al chofer)
+                             : 'bg-blue-900/50 text-blue-300 border border-blue-500'; // Fijo (el chofer ya respondió)
                        }
                        
                        return (
