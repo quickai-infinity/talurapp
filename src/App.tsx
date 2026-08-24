@@ -1611,10 +1611,16 @@ useEffect(() => {
          if (audioMensajeRef.current) { audioMensajeRef.current.currentTime = 0; audioMensajeRef.current.play().catch(()=>{}); }
       }
     })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'servicios_asignados', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
+ .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'servicios_asignados', filter: `chofer_id=eq.${session.user.id}` }, (payload) => {
       setServiciosAsignados((prev) => [...prev, payload.new]);
       if (payload.new.remitente === 'admin') {
          if (audioMensajeRef.current) { audioMensajeRef.current.currentTime = 0; audioMensajeRef.current.play().catch(()=>{}); }
+      }
+    })
+    // 👇 ESTA LÍNEA OBLIGA A LA APP DEL CHOFER A ACTUALIZAR SU PANTALLA AL INSTANTE
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles', filter: `id=eq.${session.user.id}` }, (payload) => {
+      if (payload.new.horas_acumuladas !== undefined && perfil) {
+         setPerfil({ ...perfil, horas_acumuladas: payload.new.horas_acumuladas });
       }
     })
     // 👇 ESTA ES LA LÍNEA NUEVA: Escucha cuando el dueño le modifica sus horas acumuladas
