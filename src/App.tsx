@@ -513,6 +513,7 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [modalServicioFecha, setModalServicioFecha] = useState<string | null>(null);
   const [textoServicio, setTextoServicio] = useState('');
   const [jornadaEditando, setJornadaEditando] = useState<any>(null);
+  const [diaServicioActivo, setDiaServicioActivo] = useState<string | null>(null);
 
   const enviarServicioAdmin = async () => {
     if (!textoServicio.trim() || !modalServicioFecha) return;
@@ -1216,7 +1217,10 @@ const generarExcelInspeccion = () => {
                                return (
                                    <button 
                                       key={dia} 
-                                      onClick={() => toggleDiaAdmin(dia)}
+                                      onClick={() => {
+                                         if (tieneServicio) setDiaServicioActivo(fechaStr);
+                                         else toggleDiaAdmin(dia);
+                                      }}
                                       onContextMenu={(e) => {
                                          e.preventDefault();
                                          setModalServicioFecha(fechaStr);
@@ -1290,7 +1294,7 @@ const generarExcelInspeccion = () => {
 
               <div className="flex gap-3 mt-6 border-t border-zinc-800 pt-4">
                 <button onClick={() => setJornadaEditando(null)} className="flex-1 bg-zinc-800 text-zinc-400 py-3 rounded-lg font-bold text-xs uppercase hover:text-white transition-colors">Cancelar</button>
-                <button onClick={async () => {
+               <button onClick={async () => {
                   await supabase.from('jornadas').update({
                     hora_inicio: jornadaEditando.hora_inicio,
                     hora_fin: jornadaEditando.hora_fin,
@@ -1298,14 +1302,65 @@ const generarExcelInspeccion = () => {
                     estado: jornadaEditando.hora_fin ? 'finalizada' : 'activa'
                   }).eq('id', jornadaEditando.id);
                   
+                  // AUTO-CÁLCULO AUTOMÁTICO DEL TOTAL HISTÓRICO
+                  const { data: updatedJornadas } = await supabase.from('jornadas').select('*').eq('chofer_id', chofer.id);
+                  if (updatedJornadas) {
+                     let totalMs = 0;
+                     updatedJornadas.forEach(j => { if (j.hora_fin) { totalMs += new Date(j.hora_fin).getTime() - new Date(j.hora_inicio).getTime(); } });
+                     const totalCalculado = totalMs / (1000 * 60 * 60);
+                     await supabase.from('perfiles').update({ horas_acumuladas: totalCalculado }).eq('id', chofer.id);
+                     setHoras(totalCalculado); // Refleja el cambio al instante en pantalla
+                  }
+                  
                   setJornadaEditando(null);
                   cargarDatos(); 
-                }} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-lg font-bold text-xs uppercase tracking-widest transition-all">Guardar</button>
+                }} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-lg font-bold text-xs uppercase tracking-widest transition-all">Guardar y Recalcular</button>
               </div>
             </div>
           </div>
         )}
+       {/* ========================================== */}
+        {/* MODAL DE CHAT DE SERVICIO (SOLO ADMIN)     */}
         {/* ========================================== */}
+        {diaServicioActivo && (
+          <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col p-4 items-center justify-center backdrop-blur-md">
+            <div className="bg-[#111] border border-blue-900/50 rounded-2xl w-full max-w-md h-[80vh] flex flex-col shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+              
+              <div className="p-4 border-b border-blue-900/30 bg-blue-900/10 flex justify-between items-center rounded-t-2xl">
+                 <h3 className="text-blue-400 font-bold uppercase tracking-widest text-xs">
+                    Gestión de Servicio: {diaServicioActivo}
+                 </h3>
+                 <button onClick={() => setDiaServicioActivo(null)} className="text-zinc-500 hover:text-white"><X className="w-6 h-6"/></button>
+              </div>
+
+              <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 scrollbar-thin scrollbar-thumb-zinc-800">
+                 {mensajes.filter((m: any) => m.fecha_servicio === diaServicioActivo).map((m: any) => (
+                    <div key={m.id} className={`flex ${m.remitente === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                       <div className={`p-3 rounded-lg text-xs max-w-[85%] whitespace-pre-wrap break-words ${m.remitente === 'admin' ? 'bg-blue-600 text-white font-bold shadow-lg' : (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white')}`}>
+                          {m.mensaje}
+                       </div>
+                    </div>
+                 ))}
+              </div>
+
+              <div className="p-4 bg-[#0a0a0a] border-t border-zinc-800 flex flex-col gap-3 rounded-b-2xl">
+                 <div className="flex gap-2">
+                    <input type="text" id="inputChatDiaAdmin" placeholder="Agregar detalles o enviar actualización..." onKeyDown={(e) => {
+                       if (e.key === 'Enter') {
+                           const msg = (e.target as HTMLInputElement).value;
+                           if (msg.trim()) {
+                               supabase.from('chat_directo').insert({ chofer_id: chofer.id, remitente: 'admin', mensaje: msg, fecha_servicio: diaServicioActivo }).then(() => {
+                                   (document.getElementById('inputChatDiaAdmin') as HTMLInputElement).value = '';
+                               });
+                           }
+                       }
+                    }} className="flex-1 bg-black border border-zinc-700 rounded-lg p-3 text-xs text-white focus:border-blue-500 outline-none" />
+                 </div>
+              </div>
+
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
@@ -1819,7 +1874,7 @@ audioAlarmaRef.current?.pause();
             <ShieldCheck className="w-3 h-3 text-emerald-500" />
             <span className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">Chat Central de Operaciones</span>
          </div>
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scrollbar-thin scrollbar-thumb-zinc-800">
             {mensajesDirectos.filter(m => !m.fecha_servicio).length === 0 ? (
               <div className="text-center text-zinc-600 text-[9px] uppercase mt-4">Sin mensajes operativos</div>
             ) : (
