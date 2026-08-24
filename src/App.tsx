@@ -515,15 +515,22 @@ function ModalExpediente({ chofer, onClose }: { chofer: any, onClose: () => void
   const [jornadaEditando, setJornadaEditando] = useState<any>(null);
   const [diaServicioActivo, setDiaServicioActivo] = useState<string | null>(null);
 
-  const enviarServicioAdmin = async () => {
+ const enviarServicioAdmin = async () => {
     if (!textoServicio.trim() || !modalServicioFecha) return;
 
-    await supabase.from('servicios_asignados').insert({
+    // AHORA SÍ ENVÍA EL MENSAJE A LA TABLA AZUL DE SERVICIOS
+    const { error } = await supabase.from('servicios_asignados').insert({
       chofer_id: chofer.id,
       remitente: 'admin',
       mensaje: textoServicio,
       fecha_servicio: modalServicioFecha
     });
+
+    // Si ocurre un error invisible en Supabase, la app ahora gritará
+    if (error) {
+       alert("❌ ERROR DE SUPABASE: " + error.message);
+       return;
+    }
 
     setTextoServicio('');
     setModalServicioFecha(null);
@@ -1337,7 +1344,7 @@ const generarExcelInspeccion = () => {
               </div>
 
               <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 scrollbar-thin scrollbar-thumb-zinc-800">
-                 {mensajes.filter((m: any) => m.fecha_servicio === diaServicioActivo).map((m: any) => (
+                 {serviciosAsignados.filter((m: any) => m.fecha_servicio === diaServicioActivo).map((m: any) => (
                     <div key={m.id} className={`flex ${m.remitente === 'admin' ? 'justify-end' : 'justify-start'}`}>
                        <div className={`p-3 rounded-lg text-xs max-w-[85%] whitespace-pre-wrap break-words ${m.remitente === 'admin' ? 'bg-blue-600 text-white font-bold shadow-lg' : (m.mensaje === 'Servicio confirmado' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-700 text-white')}`}>
                           {m.mensaje}
