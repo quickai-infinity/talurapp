@@ -392,12 +392,7 @@ function AdminDashboard({ session }: { session: any }) {
     } 
   />
   
-  <MetricCard 
-    icon={<ShieldCheck className="text-yellow-500" />} 
-    title="Estado Inspección" 
-    value="Auditable" 
-    highlight 
-  />
+  
   {choferSeleccionado && (
         <ModalExpediente 
           chofer={choferSeleccionado} 
