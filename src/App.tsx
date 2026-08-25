@@ -1193,6 +1193,9 @@ const generarExcelInspeccion = () => {
                             <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
                          </div>
                          <div className="grid grid-cols-7 gap-2">
+                          {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() === 0 ? 6 : new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth(), 1).getDay() - 1 }).map((_, i) => (
+                               <div key={`empty-${i}`} className="p-2"></div>
+                            ))}
                          {Array.from({ length: new Date(mesCuadrante.getFullYear(), mesCuadrante.getMonth() + 1, 0).getDate() }).map((_, i) => {
                                const dia = i + 1;
                                const year = mesCuadrante.getFullYear();
@@ -1516,7 +1519,7 @@ function DriverApp({ session }: { session: any }) {
   const [turnoSeleccionado, setTurnoSeleccionado] = useState('1er Turno');
   const [incidencias, setIncidencias] = useState('');
   const flotaTalur = [
-    "Mercedes Benz Sprinter 1", "Mercedes Benz Sprinter 2",
+    "Mercedes Benz Sprinter 1", "Mercedes Benz Sprinter 2", "Mercedes Benz Maybach v12",  
     "Mercedes Minivan Clase V 1", "Mercedes Minivan Clase V 2", "Mercedes Minivan Clase V 3", "Mercedes Minivan Clase V 4",
     "BYD Seal 1 (Eléctrico)", "BYD Seal 2 (Eléctrico)", "BYD Seal 3 (Eléctrico)", "BYD Seal 4 (Eléctrico)",
     "Mercedes Sedan Clase E"
