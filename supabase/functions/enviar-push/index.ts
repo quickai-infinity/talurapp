@@ -1,59 +1,98 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { JWT } from 'https://esm.sh/google-auth-library@9'
 
-serve(async (req) => {
+serve(async (req: Request) => {
+  console.log("🔔 [V1] Configurando notificación personalizada...");
+  
   try {
-    const payload = await req.json()
-    const record = payload.record; // Los datos del mensaje insertado
+    const payload = await req.json();
+    const record = payload.record;
+    
+    // CORRECCIÓN: Aquí es donde viene el nombre de la tabla desde el SQL
+    const nombreTabla = payload.tabla; 
+    
+    if (!record) return new Response("No record", { status: 400 });
 
-    // 1. Conectar a la base de datos usando las variables de entorno de Supabase
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    // 1. OBTENER LOS DATOS DEL CHOFER
+    // Necesitamos consultar su perfil para saber su nombre exacto
+    const { data: choferInfo } = await supabase
+      .from('perfiles')
+      .select('nombre_completo, fcm_token')
+      .eq('id', record.chofer_id)
+      .single();
 
     let tokenDestino = null;
+    let nombreRemitente = '';
 
-    // 2. Lógica para saber a quién pitarle el teléfono
+    // 2. ¿QUIÉN ENVÍA Y A QUIÉN VA DIRIGIDO?
     if (record.remitente === 'admin') {
-       // El dueño escribió: buscar el token FCM del chofer
-       const { data } = await supabase.from('perfiles').select('fcm_token').eq('id', record.chofer_id).single()
-       tokenDestino = data?.fcm_token;
+       // Envía el Admin -> Va para el Chofer
+       tokenDestino = choferInfo?.fcm_token;
+       nombreRemitente = 'Central Operaciones';
     } else {
-       // El chofer escribió: buscar el token FCM del dueño (rol: admin)
-       const { data } = await supabase.from('perfiles').select('fcm_token').eq('rol', 'admin').limit(1).single()
-       tokenDestino = data?.fcm_token;
+       // Envía el Chofer -> Va para el Admin
+       const { data: adminInfo } = await supabase.from('perfiles').select('fcm_token').eq('rol', 'admin').limit(1).single();
+       tokenDestino = adminInfo?.fcm_token;
+       // Cogemos el nombre de la base de datos (o ponemos "Chofer" si por algún error no hay nombre)
+       nombreRemitente = choferInfo?.nombre_completo || 'Chofer';
     }
 
-    // Si el usuario no ha dado permisos o borró la app, no hay token
     if (!tokenDestino) {
-        return new Response("Usuario sin token de Firebase", { status: 200 })
+        console.log("⚠️ Sin token destino");
+        return new Response("Sin token", { status: 200 });
     }
 
-    // 3. Ejecutar la llamada a la puerta VIP de Firebase
-    // Necesitarás guardar tu "Server Key" de Firebase en las variables de entorno de Supabase
-    const firebaseServerKey = Deno.env.get('FIREBASE_SERVER_KEY')! 
+    // 3. CREAR EL TÍTULO DINÁMICO
+    // Definimos si es Chat o Servicio
+    const contextoMensaje = nombreTabla === 'chat_directo' ? 'Chat Operaciones' : 'Gestión de Servicio';
     
-    const titulo = record.tabla === 'chat_directo' ? 'Mensaje Operativo' : 'Servicio Asignado';
+    // Unimos el nombre de quien envía y desde dónde (Ej: "Juan Navarro • Chat Operaciones")
+    const tituloPush = `${nombreRemitente} • ${contextoMensaje}`;
 
-    const fcmRes = await fetch('https://fcm.googleapis.com/fcm/send', {
+    // 4. LEER LA CUENTA DE SERVICIO (V1)
+    const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
+    if(!serviceAccountRaw) return new Response("Falta service account", { status: 500 });
+    const serviceAccount = JSON.parse(serviceAccountRaw);
+
+    // 5. GENERAR EL PASE VIP TEMPORAL (OAUTH2)
+    const jwtClient = new JWT({
+      email: serviceAccount.client_email,
+      key: serviceAccount.private_key,
+      scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+    });
+    const tokens = await jwtClient.authorize();
+
+    // 6. ENVIAR POR LA NUEVA RUTA V1
+    console.log(`🚀 Enviando Push: [${tituloPush}]`);
+    const fcmRes = await fetch(`https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `key=${firebaseServerKey}`
+        'Authorization': `Bearer ${tokens.access_token}`
       },
       body: JSON.stringify({
-        to: tokenDestino,
-        notification: {
-          title: titulo,
-          body: record.mensaje,
-          sound: 'default'
+        message: {
+          token: tokenDestino,
+          notification: {
+            title: tituloPush,    // <--- Aquí inyectamos nuestro título personalizado
+            body: record.mensaje  // <--- Aquí va el texto que escriben
+          }
         }
       })
-    })
+    });
 
-    return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } })
+  
+    const fcmData = await fcmRes.json();
+    return new Response(JSON.stringify({ success: true, fcmData }), { headers: { "Content-Type": "application/json" } });
 
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+  } catch (error: any) {
+    console.error("❌ [ERROR]", error.message);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 })

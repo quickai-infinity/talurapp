@@ -10,7 +10,10 @@ import html2canvas from 'html2canvas';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import { registerPlugin } from '@capacitor/core';
+import { initializeApp } from 'firebase/app';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
+
 
 // ==========================================
 // FIX VISUAL DEL MAPA Y MOTOR DE AUTO-CENTRADO
@@ -234,6 +237,7 @@ function RoleController({ session }: { session: any }) {
 // ==========================================
 // DASHBOARD DEL DUEÑO (ADMIN - CON IA Y MÉTRICAS AJUSTADAS)
 // ==========================================
+
 function AdminDashboard({ session }: { session: any }) {
   const [choferes, setChoferes] = useState<any[]>([]);
   const [choferSeleccionado, setChoferSeleccionado] = useState<any>(null);
@@ -247,29 +251,75 @@ function AdminDashboard({ session }: { session: any }) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
 
+// =====================================================
+  // 1. CONFIGURACIÓN DE FIREBASE WEB PARA EL ADMIN
+  // =====================================================
   useEffect(() => {
-    // 1. Pedir permisos de Notificación Visual
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    // ⚠️ ATENCIÓN: Pega aquí los datos que te dio Firebase al crear la App Web
+    const firebaseConfig = {
+      apiKey: "AIzaSyAG6KD6dJV7kPjbDiTGv_GMOsIlTi_AmIE",
+      authDomain: "talurapp-33e5c.firebaseapp.com",
+      projectId: "talurapp-33e5c",
+      storageBucket: "talurapp-33e5c.appspot.com",
+      messagingSenderId: "387657779361",
+      appId: "1:387657779361:web:e86ca16a5ab6f3c86408e0"
+    };
 
-    
-   // 2. Radar Global: Escucha mensajes de TODOS los choferes (Solo datos)
- const canalGlobal = supabase.channel('chat_admin_global')
-  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, () => {
-     if (audioMensajeAdminRef.current) {
+    const app = initializeApp(firebaseConfig);
+    const messaging = getMessaging(app);
+
+    const activarNotificacionesWeb = async () => {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          // ⚠️ ATENCIÓN: Pega aquí tu Llave VAPID pública
+          const currentToken = await getToken(messaging, { 
+            vapidKey: 'BP5ZPqZPUXMNp90fx5FSFW0irC-xwrdM_S1A2zKTDvLeFdu7EfFQ9klCG9UZLslmgrUpOMRMN53dlmgoYePMLDs' 
+          });
+
+          if (currentToken && session?.user?.id) {
+            console.log("Token Web generado para Admin:", currentToken);
+            // Guardamos el token en el perfil del Admin en Supabase
+            await supabase.from('perfiles').update({ fcm_token: currentToken }).eq('id', session.user.id);
+          }
+        }
+      } catch (error) {
+        console.error("Error al registrar Web Push:", error);
+      }
+    };
+
+    activarNotificacionesWeb();
+
+    // Esto lanza el pop-up de Windows si tienes la pestaña de la web ABIERTA
+    const unsubscribe = onMessage(messaging, (payload) => {
+      if (Notification.permission === 'granted') {
+        new Notification(payload.notification?.title || 'Nuevo Mensaje', {
+          body: payload.notification?.body,
+          icon: '/icono-talur.png' // Opcional
+        });
+      }
+      if (audioMensajeAdminRef.current) {
         audioMensajeAdminRef.current.currentTime = 0;
         audioMensajeAdminRef.current.play().catch(()=>{});
-     }
-  }).subscribe();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [session?.user?.id]);
+
+  // =====================================================
+  // 2. RADAR GLOBAL: Audio para cuando escriben los choferes
+  // =====================================================
+  useEffect(() => {
+    const canalGlobal = supabase.channel('chat_admin_global')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_directo', filter: `remitente=eq.chofer` }, () => {
+         if (audioMensajeAdminRef.current) {
+            audioMensajeAdminRef.current.currentTime = 0;
+            audioMensajeAdminRef.current.play().catch(()=>{});
+         }
+      }).subscribe();
 
     return () => { supabase.removeChannel(canalGlobal); };
-  }, []);
-
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
   }, []);
 
   
