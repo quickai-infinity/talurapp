@@ -1104,35 +1104,68 @@ const generarExcelInspeccion = () => {
                            </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-800">
-                           {historialJornadas.map(j => {
-                              return (
-                                <tr key={j.id} className="hover:bg-zinc-800/50 cursor-pointer transition-colors" onClick={() => setJornadaEditando(j)} title="Clic para corregir este turno">
-                                   <td className="py-3 px-4">
-                                      <p className="font-bold text-white">{new Date(j.hora_inicio).toLocaleDateString()}</p>
-                                      <p className="font-mono text-xs text-zinc-500">{new Date(j.hora_inicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {j.hora_fin ? new Date(j.hora_fin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}</p>
-                                   </td>
-                                   <td className="py-3 px-4">
-                                      <p className="text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</p>
-                                      <p className="text-[10px] font-bold text-zinc-500 uppercase mt-0.5">{j.turno || '1er Turno'}</p>
-                                   </td>
-                                   <td className="py-3 px-4 font-mono text-xs">
-                                      {j.gasto_combustible > 0 || j.kilometraje > 0 ? (
-                                        <div className="flex flex-col gap-0.5">
-                                          {j.gasto_combustible > 0 && (
-                                              <span className="text-white">€{j.gasto_combustible} {j.litros_combustible > 0 && <span className="text-zinc-500">({j.litros_combustible}L)</span>}</span>
-                                          )}
-                                          {j.kilometraje > 0 && (
-                                              <span className="text-emerald-500 text-[10px] font-bold tracking-widest">KM: {j.kilometraje}</span>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <span className="text-zinc-600">-</span>
-                                      )}
-                                   </td>
-                                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] uppercase font-bold ${j.estado === 'activa' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-zinc-800 text-zinc-400'}`}>{j.estado}</span></td>
-                                </tr>
-                              );
-                           })}
+                         {historialJornadas.map(j => {
+    // --- LÓGICA DE TIEMPO Y CAMBIO DE DÍA ---
+    const fechaInicio = new Date(j.hora_inicio);
+    const fechaFin = j.hora_fin ? new Date(j.hora_fin) : null;
+    
+    const fechaInicioStr = fechaInicio.toLocaleDateString();
+    const fechaFinStr = fechaFin ? fechaFin.toLocaleDateString() : '';
+    const cruzoMedianoche = fechaFin && fechaInicioStr !== fechaFinStr;
+
+    // Calcular cuánto tiempo lleva o duró este turno
+    const msDuracion = fechaFin 
+        ? fechaFin.getTime() - fechaInicio.getTime() 
+        : new Date().getTime() - fechaInicio.getTime();
+        
+    const horas = Math.floor(msDuracion / (1000 * 60 * 60));
+    const minutos = Math.floor((msDuracion % (1000 * 60 * 60)) / (1000 * 60));
+    // ----------------------------------------
+
+    return (
+        <tr key={j.id} className="hover:bg-zinc-800/50 cursor-pointer transition-colors" onClick={() => setJornadaEditando(j)} title="Clic para corregir este turno">
+            <td className="py-3 px-4">
+                {/* 1. Muestra la fecha (y si cambia de día le añade la flecha) */}
+                <p className="font-bold text-white flex items-center gap-1">
+                    {fechaInicioStr} 
+                    {cruzoMedianoche && <span className="text-zinc-400 text-[10px] ml-1 bg-zinc-800 px-1.5 py-0.5 rounded">➔ {fechaFinStr}</span>}
+                </p>
+                
+                {/* 2. Muestra las horas (Entrada - Salida) */}
+                <p className="font-mono text-xs text-zinc-500 mt-1">
+                    {fechaInicio.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {fechaFin ? fechaFin.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : <span className="text-emerald-500 animate-pulse">EN RUTA</span>}
+                </p>
+
+                {/* 3. MUESTRA EL TIEMPO CONECTADO */}
+                <p className={`text-[10px] font-bold mt-1 tracking-widest uppercase ${!fechaFin ? 'text-emerald-500 animate-pulse' : 'text-yellow-500'}`}>
+                    ⏱ Tiempo: {horas}h {minutos}m
+                </p>
+            </td>
+            
+            <td className="py-3 px-4">
+                <p className="text-xs font-bold text-yellow-500">{j.vehiculo || 'No asignado'}</p>
+                <p className="text-[10px] font-bold text-zinc-500 uppercase mt-0.5">{j.turno || '1er Turno'}</p>
+            </td>
+            
+            <td className="py-3 px-4 font-mono text-xs">
+                {j.gasto_combustible > 0 || j.kilometraje > 0 ? (
+                <div className="flex flex-col gap-0.5">
+                    {j.gasto_combustible > 0 && (
+                        <span className="text-white">€{j.gasto_combustible} {j.litros_combustible > 0 && <span className="text-zinc-500">({j.litros_combustible}L)</span>}</span>
+                    )}
+                    {j.kilometraje > 0 && (
+                        <span className="text-emerald-500 text-[10px] font-bold tracking-widest">KM: {j.kilometraje}</span>
+                    )}
+                </div>
+                ) : (
+                <span className="text-zinc-600">-</span>
+                )}
+            </td>
+            
+            <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] uppercase font-bold ${j.estado === 'activa' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-zinc-800 text-zinc-400'}`}>{j.estado}</span></td>
+        </tr>
+    );
+})}
                         </tbody>
                      </table>
                   </div>
